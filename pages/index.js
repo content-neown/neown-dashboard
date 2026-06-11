@@ -26,16 +26,30 @@ function parseLI(raw){
 const SM={'andhra pradesh':'Andhra Pradesh','arunachal pradesh':'Arunachal Pradesh','assam':'Assam','bihar':'Bihar','chhattisgarh':'Chhattisgarh','goa':'Goa','gujarat':'Gujarat','haryana':'Haryana','himachal pradesh':'Himachal Pradesh','jharkhand':'Jharkhand','karnataka':'Karnataka','kerala':'Kerala','madhya pradesh':'Madhya Pradesh','maharashtra':'Maharashtra','manipur':'Manipur','meghalaya':'Meghalaya','mizoram':'Mizoram','nagaland':'Nagaland','odisha':'Orissa','orissa':'Orissa','punjab':'Punjab','rajasthan':'Rajasthan','sikkim':'Sikkim','tamil nadu':'Tamil Nadu','tamilnadu':'Tamil Nadu','telangana':'Andhra Pradesh','tripura':'Tripura','uttar pradesh':'Uttar Pradesh','uttarakhand':'Uttaranchal','uttaranchal':'Uttaranchal','west bengal':'West Bengal','jammu and kashmir':'Jammu and Kashmir','jammu & kashmir':'Jammu and Kashmir','j & k':'Jammu and Kashmir','delhi':'Delhi','new delhi':'Delhi','nct of delhi':'Delhi','chandigarh':'Chandigarh','puducherry':'Puducherry','pondicherry':'Puducherry'};
 function normState(s){if(!s)return null;return SM[s.toLowerCase().trim()]||null;}
 
-/* ── Zoomable India Heatmap with click-to-zoom-state ── */
-function IndiaHeatmap({stateData,metric}){
-  const wrapRef=useRef(null),geoRef=useRef(null),zoomRef=useRef(null),drawnRef=useRef(false),activeRef=useRef(null);
+/* ── India Heatmap — state + district drill-down ── */
+function IndiaHeatmap({stateData,districtData,metric}){
+  const wrapRef=useRef(null),geoStateRef=useRef(null),geoDistRef=useRef(null);
+  const zoomRef=useRef(null),drawnRef=useRef(false);
+  const activeStateRef=useRef(null),modeRef=useRef('state'); // 'state' | 'district'
+
+  const fmtVal=(v,met)=>{
+    if(!v&&v!==0)return'—';
+    if(met==='aov')return'₹'+Math.round(v).toLocaleString('en-IN');
+    if(met==='renewal'||met==='disc')return Math.round(v)+'%';
+    return v.toLocaleString('en-IN')+' orders';
+  };
+
+  const metLabel=m=>({aov:'AOV',renewal:'Renewal',disc:'Discount',orders:'Orders'}[m]||m);
 
   const draw=useCallback(()=>{
-    const d3=window.d3,wrap=wrapRef.current,geo=geoRef.current;
-    if(!d3||!wrap||!geo||!stateData)return;
+    const d3=window.d3,wrap=wrapRef.current;
+    const geoState=geoStateRef.current,geoDist=geoDistRef.current;
+    if(!d3||!wrap||!geoState||!geoDist||!stateData)return;
+
     wrap.innerHTML='';
     drawnRef.current=false;
-    activeRef.current=null;
+    activeStateRef.current=null;
+    modeRef.current='state';
 
     const W=wrap.clientWidth||700;
     const H=Math.min(Math.round(W*0.78),600);
@@ -45,129 +59,128 @@ function IndiaHeatmap({stateData,metric}){
       .attr('viewBox',`0 0 ${W} ${H}`)
       .style('display','block').style('cursor','grab');
 
+    svg.append('rect').attr('width',W).attr('height',H).attr('fill','#f5f5f3').attr('rx',8);
+
+    const g=svg.append('g');
+    const proj=d3.geoMercator().center([82.5,22]).scale(W*1.45).translate([W/2,H/2]);
+    const path=d3.geoPath(proj);
+
     // Tooltip
     const tt=d3.select(wrap).append('div')
       .style('position','absolute').style('background','#fff')
       .style('border','0.5px solid #e0e0e0').style('border-radius','10px')
       .style('padding','10px 14px').style('font-size','12px').style('line-height','1.65')
-      .style('pointer-events','none').style('opacity','0').style('transition','opacity 0.12s')
+      .style('pointer-events','none').style('opacity','0').style('transition','opacity 0.1s')
       .style('white-space','nowrap').style('z-index','30')
       .style('box-shadow','0 4px 16px rgba(0,0,0,0.13)');
 
-    // Back button (hidden until a state is selected)
+    // Breadcrumb bar
+    const breadcrumb=d3.select(wrap).append('div')
+      .style('position','absolute').style('top','10px').style('left','50px')
+      .style('background','rgba(255,255,255,0.95)').style('border','0.5px solid #ddd')
+      .style('border-radius','8px').style('padding','5px 12px').style('font-size','12px')
+      .style('display','none').style('z-index','20').style('color','#555')
+      .style('box-shadow','0 2px 8px rgba(0,0,0,0.09)');
+
+    // Back button
     const backBtn=d3.select(wrap).append('div')
       .style('position','absolute').style('top','10px').style('right','10px')
       .style('background','rgba(255,255,255,0.95)').style('border','0.5px solid #ddd')
-      .style('border-radius','8px').style('padding','6px 14px').style('font-size','12px')
+      .style('border-radius','8px').style('padding','5px 14px').style('font-size','12px')
       .style('cursor','pointer').style('display','none').style('color','#185FA5')
       .style('font-weight','500').style('z-index','20')
-      .style('box-shadow','0 2px 8px rgba(0,0,0,0.1)')
+      .style('box-shadow','0 2px 8px rgba(0,0,0,0.09)')
       .text('← All India')
-      .on('click',()=>resetToIndia(d3,svg,zoom,W,H,path,g,backBtn,stateLabelDiv));
+      .on('click',ev=>{ev.stopPropagation();resetAll();});
 
-    // State name overlay (shown when zoomed into a state)
-    const stateLabelDiv=d3.select(wrap).append('div')
-      .style('position','absolute').style('bottom','36px').style('left','12px')
-      .style('font-size','16px').style('font-weight','500').style('color','#1a1a1a')
-      .style('display','none').style('pointer-events','none')
-      .style('background','rgba(255,255,255,0.88)').style('padding','4px 10px')
-      .style('border-radius','6px');
+    // ── color scales ──
+    const stateVals=Object.values(stateData).map(d=>d[metric]||0).filter(v=>v>0);
+    const stateMx=Math.max(...stateVals,1);
+    const stateCs=d3.scaleSequential([0,stateMx],d3.interpolateBlues);
 
-    const vals=Object.values(stateData).map(d=>d[metric]||0).filter(v=>v>0);
-    const mx=Math.max(...vals,1);
-    const cs=d3.scaleSequential([0,mx],d3.interpolateBlues);
-
-    const proj=d3.geoMercator().center([82.5,22]).scale(W*1.45).translate([W/2,H/2]);
-    const path=d3.geoPath(proj);
-
-    svg.append('rect').attr('width',W).attr('height',H).attr('fill','#f5f5f3').attr('rx',8);
-
-    const g=svg.append('g');
-
-    const paths=g.selectAll('path').data(geo.features).join('path')
+    // ── Draw state layer (always present, dims on drill-down) ──
+    const stateG=g.append('g').attr('class','state-layer');
+    stateG.selectAll('path').data(geoState.features).join('path')
       .attr('d',path)
-      .attr('fill',d=>{const v=stateData[d.properties.NAME_1]?.[metric]||0;return v>0?cs(v):'#e2e0db';})
-      .attr('stroke','#fff').attr('stroke-width',0.7).style('cursor','pointer');
+      .attr('fill',d=>{const v=stateData[d.properties.NAME_1]?.[metric]||0;return v>0?stateCs(v):'#e2e0db';})
+      .attr('stroke','#fff').attr('stroke-width',0.7).style('cursor','pointer')
+      .on('click',function(event,d){
+        event.stopPropagation();tt.style('opacity','0');
+        zoomToState(d3,svg,zoom,W,H,path,d,g,stateG,distG,lblG,breadcrumb,backBtn);
+      })
+      .on('mouseover',function(event,d){
+        if(modeRef.current==='district')return;
+        const nm=d.properties.NAME_1,sd=stateData[nm];
+        d3.select(this).raise().attr('stroke','#185FA5').attr('stroke-width',1.5);
+        if(!sd){tt.style('opacity','0');return;}
+        tt.style('opacity','1').html(
+          `<div style="font-weight:500;font-size:13px;margin-bottom:4px">${nm}</div>`+
+          `<div style="color:#444">${metLabel(metric)}: <strong>${fmtVal(sd[metric],metric)}</strong></div>`+
+          `<div style="color:#aaa;font-size:11px;margin-top:3px">${sd.orders.toLocaleString('en-IN')} orders · AOV ₹${sd.aov.toLocaleString('en-IN')} · ${sd.renewal}% renewal</div>`+
+          `<div style="color:#888;font-size:11px;margin-top:2px;font-style:italic">Click to see districts</div>`
+        );
+      })
+      .on('mousemove',handleMouseMove)
+      .on('mouseout',function(){
+        if(modeRef.current==='district')return;
+        d3.select(this).attr('stroke','#fff').attr('stroke-width',0.7/(zoomRef.current?.k||1));
+        tt.style('opacity','0');
+      });
 
-    // ── Click to zoom into state ──
-    paths.on('click',function(event,d){
-      event.stopPropagation();
-      tt.style('opacity','0');
-      const nm=d.properties.NAME_1;
-      if(activeRef.current===nm){
-        // Second click on same state = reset
-        resetToIndia(d3,svg,zoom,W,H,path,g,backBtn,stateLabelDiv);
-        return;
-      }
-      activeRef.current=nm;
+    // ── District layer (hidden until drill-down) ──
+    const distG=g.append('g').attr('class','dist-layer').style('display','none');
 
-      // Compute bounds of clicked state
-      const [[x0,y0],[x1,y1]]=path.bounds(d);
-      const bW=x1-x0,bH=y1-y0;
-      // Padding around the state
-      const pad=0.25;
-      const scale=Math.min(8,0.9/Math.max(bW/W,bH/H))*(1-pad);
-      const cx=(x0+x1)/2,cy=(y0+y1)/2;
-      const tx=W/2-scale*cx,ty=H/2-scale*cy;
+    // Precompute district color scale per state when needed
+    function showDistricts(stateName){
+      distG.style('display',null);
+      const stateDists=geoDist.features.filter(f=>f.properties.state===stateName);
+      // district data keyed by district name (lowercase for fuzzy match)
+      const dData=districtData?.[stateName]||{};
+      const dVals=Object.values(dData).map(d=>d[metric]||0).filter(v=>v>0);
+      const dMx=Math.max(...dVals,1);
+      const distCs=d3.scaleSequential([0,dMx],d3.interpolateOranges);
 
-      // Highlight selected, dim others
-      g.selectAll('path')
-        .transition().duration(300)
-        .attr('opacity',feat=>feat.properties.NAME_1===nm?1:0.35)
-        .attr('stroke',feat=>feat.properties.NAME_1===nm?'#185FA5':'#fff')
-        .attr('stroke-width',feat=>feat.properties.NAME_1===nm?1.5/scale:0.7/scale);
+      distG.selectAll('*').remove();
+      distG.selectAll('path').data(stateDists).join('path')
+        .attr('d',path)
+        .attr('fill',d=>{
+          const nm=d.properties.district;
+          const key=Object.keys(dData).find(k=>k.toLowerCase()===nm.toLowerCase());
+          const v=key?dData[key][metric]||0:0;
+          return v>0?distCs(v):'#e8e4de';
+        })
+        .attr('stroke','#fff').attr('stroke-width',0.3).style('cursor','default')
+        .on('mouseover',function(event,d){
+          const nm=d.properties.district;
+          const key=Object.keys(dData).find(k=>k.toLowerCase()===nm.toLowerCase());
+          const dd=key?dData[key]:null;
+          d3.select(this).raise().attr('stroke','#185FA5').attr('stroke-width',0.8/(zoomRef.current?.k||1));
+          tt.style('opacity','1').html(
+            `<div style="font-weight:500;font-size:13px;margin-bottom:4px">${nm}</div>`+
+            (dd
+              ? `<div style="color:#444">${metLabel(metric)}: <strong>${fmtVal(dd[metric],metric)}</strong></div>`+
+                `<div style="color:#aaa;font-size:11px;margin-top:3px">${dd.orders.toLocaleString('en-IN')} orders · AOV ₹${dd.aov.toLocaleString('en-IN')} · ${dd.renewal}% renewal</div>`
+              : `<div style="color:#aaa;font-size:12px">No order data</div>`)
+          );
+        })
+        .on('mousemove',handleMouseMove)
+        .on('mouseout',function(){
+          d3.select(this).attr('stroke','#fff').attr('stroke-width',0.3/(zoomRef.current?.k||1));
+          tt.style('opacity','0');
+        });
 
-      svg.transition().duration(600).ease(d3.easeCubicInOut)
-        .call(zoom.transform,d3.zoomIdentity.translate(tx,ty).scale(scale));
+      // District legend
+      updateLegend(svg,distCs,dMx,W,H);
+    }
 
-      // Show back button + state label
-      backBtn.style('display','block');
-      const sd=stateData[nm];
-      const metVal=!sd?'—':metric==='aov'?'₹'+sd.aov.toLocaleString('en-IN'):metric==='renewal'?sd.renewal+'% renewal':metric==='disc'?sd.disc+'% discount rate':sd.orders.toLocaleString('en-IN')+' orders';
-      stateLabelDiv.style('display','block').text(`${nm}  ·  ${metVal}`);
-    });
-
-    // Click on SVG background = reset
-    svg.on('click',()=>resetToIndia(d3,svg,zoom,W,H,path,g,backBtn,stateLabelDiv));
-
-    // Hover
-    paths.on('mouseover',function(event,d){
-      const nm=d.properties.NAME_1,sd=stateData[nm];
-      if(activeRef.current&&activeRef.current!==nm)return;
-      d3.select(this).raise().attr('stroke','#185FA5').attr('stroke-width',1.5/((zoomRef.current?.k)||1));
-      if(!sd){tt.style('opacity','0');return;}
-      const fmt=metric==='aov'?'₹'+sd.aov.toLocaleString('en-IN'):metric==='renewal'?sd.renewal+'%':metric==='disc'?sd.disc+'%':sd.orders.toLocaleString('en-IN')+' orders';
-      const metLabel=metric==='aov'?'AOV':metric==='renewal'?'Renewal':metric==='disc'?'Discount':'Orders';
-      tt.style('opacity','1').html(
-        `<div style="font-weight:500;font-size:13px;margin-bottom:4px">${nm}</div>`+
-        `<div style="color:#444">${metLabel}: <strong>${fmt}</strong></div>`+
-        `<div style="color:#aaa;font-size:11px;margin-top:3px">${sd.orders.toLocaleString('en-IN')} orders · AOV ₹${sd.aov.toLocaleString('en-IN')} · ${sd.renewal}% renewal</div>`
-      );
-    })
-    .on('mousemove',function(event){
-      const rect=wrap.getBoundingClientRect();
-      const x=event.clientX-rect.left,y=event.clientY-rect.top;
-      const lx=x+18+220>wrap.clientWidth?x-230:x+18;
-      tt.style('left',lx+'px').style('top',Math.max(8,y-80)+'px');
-    })
-    .on('mouseout',function(){
-      const k=(zoomRef.current?.k)||1;
-      const nm=d3.select(this).datum().properties.NAME_1;
-      const isActive=activeRef.current===nm||!activeRef.current;
-      d3.select(this)
-        .attr('stroke',activeRef.current===nm?'#185FA5':'#fff')
-        .attr('stroke-width',(activeRef.current===nm?1.5:0.7)/k);
-      tt.style('opacity','0');
-    });
-
-    // Labels
-    const bigStates=['Maharashtra','Rajasthan','Madhya Pradesh','Uttar Pradesh','Karnataka','Gujarat','Andhra Pradesh','Tamil Nadu','Orissa','West Bengal','Bihar','Jharkhand','Chhattisgarh','Haryana'];
+    // ── Label layer ──
     const lblG=g.append('g').attr('class','labels');
-    lblG.selectAll('text').data(geo.features.filter(f=>bigStates.includes(f.properties.NAME_1))).join('text')
+    const bigStates=['Maharashtra','Rajasthan','Madhya Pradesh','Uttar Pradesh','Karnataka','Gujarat','Andhra Pradesh','Tamil Nadu','Orissa','West Bengal','Bihar','Jharkhand','Chhattisgarh','Haryana'];
+    lblG.selectAll('text').data(geoState.features.filter(f=>bigStates.includes(f.properties.NAME_1))).join('text')
       .attr('pointer-events','none')
       .attr('transform',d=>{const[cx,cy]=path.centroid(d);return`translate(${cx},${cy})`;})
       .attr('text-anchor','middle').attr('dominant-baseline','middle').attr('font-size',9)
-      .attr('fill',d=>{const v=stateData[d.properties.NAME_1]?.[metric]||0;return v>mx*0.5?'rgba(255,255,255,0.93)':'rgba(0,0,0,0.35)';})
+      .attr('fill',d=>{const v=stateData[d.properties.NAME_1]?.[metric]||0;return v>stateMx*0.5?'rgba(255,255,255,0.93)':'rgba(0,0,0,0.35)';})
       .text(d=>{
         const v=stateData[d.properties.NAME_1]?.[metric]||0;if(!v)return'';
         if(metric==='aov')return'₹'+(v>=1000?Math.round(v/1000)+'k':Math.round(v));
@@ -175,78 +188,123 @@ function IndiaHeatmap({stateData,metric}){
         return v>=1000?(v/1000).toFixed(1)+'k':v;
       });
 
-    // Zoom behaviour
+    // ── Zoom to state ──
+    function zoomToState(d3,svg,zoom,W,H,path,d,g,stateG,distG,lblG,breadcrumb,backBtn){
+      const nm=d.properties.NAME_1;
+      if(activeStateRef.current===nm){resetAll();return;}
+      activeStateRef.current=nm;
+      modeRef.current='district';
+
+      const[[x0,y0],[x1,y1]]=path.bounds(d);
+      const bW=x1-x0,bH=y1-y0;
+      const scale=Math.min(8,Math.min(W/(bW*1.3),H/(bH*1.3)));
+      const cx=(x0+x1)/2,cy=(y0+y1)/2;
+      const tx=W/2-scale*cx,ty=H/2-scale*cy;
+
+      // Dim state layer, show districts
+      stateG.selectAll('path').transition().duration(300)
+        .attr('opacity',f=>f.properties.NAME_1===nm?0:0.15)
+        .attr('stroke-width',0);
+
+      lblG.transition().duration(300).attr('opacity',0);
+
+      showDistricts(nm);
+
+      svg.transition().duration(650).ease(d3.easeCubicInOut)
+        .call(zoom.transform,d3.zoomIdentity.translate(tx,ty).scale(scale));
+
+      breadcrumb.style('display','block').html(`<span style="color:#888">India</span> <span style="color:#ccc">›</span> <span style="color:#185FA5;font-weight:500">${nm}</span>`);
+      backBtn.style('display','block');
+    }
+
+    function resetAll(){
+      activeStateRef.current=null;
+      modeRef.current='state';
+      breadcrumb.style('display','none');
+      backBtn.style('display','none');
+      tt.style('opacity','0');
+      distG.style('display','none').selectAll('*').remove();
+      stateG.selectAll('path').transition().duration(400).attr('opacity',1).attr('stroke','#fff').attr('stroke-width',0.7);
+      lblG.transition().duration(400).attr('opacity',1);
+      svg.transition().duration(500).ease(d3.easeCubicInOut).call(zoom.transform,d3.zoomIdentity);
+      updateLegend(svg,stateCs,stateMx,W,H);
+    }
+
+    function handleMouseMove(event){
+      const rect=wrap.getBoundingClientRect();
+      const x=event.clientX-rect.left,y=event.clientY-rect.top;
+      const lx=x+18+240>wrap.clientWidth?x-250:x+18;
+      tt.style('left',lx+'px').style('top',Math.max(8,y-90)+'px');
+    }
+
+    // Click background = reset
+    svg.on('click',()=>{if(modeRef.current==='district')resetAll();});
+
+    // ── Zoom behaviour ──
     const zoom=d3.zoom()
-      .scaleExtent([1,9])
+      .scaleExtent([1,12])
       .translateExtent([[0,0],[W,H]])
       .on('zoom',event=>{
         const{transform:tr}=event;
         zoomRef.current={zoom,svg,W,H,k:tr.k};
         g.attr('transform',tr);
-        g.selectAll('path:not(.lbl)').attr('stroke-width',function(){
-          const nm=d3.select(this).datum().properties.NAME_1;
-          return(activeRef.current===nm?1.5:0.7)/tr.k;
-        });
+        stateG.selectAll('path').attr('stroke-width',0.7/tr.k);
+        distG.selectAll('path').attr('stroke-width',0.3/tr.k);
         lblG.selectAll('text').attr('font-size',9/Math.sqrt(tr.k));
-        if(tr.k===1){
-          backBtn.style('display','none');
-          stateLabelDiv.style('display','none');
-          activeRef.current=null;
-          g.selectAll('path').attr('opacity',1).attr('stroke','#fff');
-        }
+        if(tr.k<=1.05&&modeRef.current==='district')resetAll();
         tt.style('opacity','0');
       });
 
     svg.call(zoom);
     zoomRef.current={zoom,svg,W,H,k:1};
 
-    // +/- zoom controls
-    const ctrlG=svg.append('g').attr('transform','translate(12,12)');
-    [['+',0,'in'],['-',28,'out']].forEach(([lbl,dy,action])=>{
-      const btn=ctrlG.append('g').attr('transform',`translate(0,${dy})`).style('cursor','pointer');
-      btn.append('rect').attr('width',26).attr('height',24).attr('rx',5).attr('fill','rgba(255,255,255,0.92)').attr('stroke','rgba(0,0,0,0.12)').attr('stroke-width',0.5);
-      btn.append('text').attr('x',13).attr('y',16).attr('text-anchor','middle').attr('font-size',16).attr('fill','#444').text(lbl);
-      btn.on('click',ev=>{ev.stopPropagation();svg.transition().duration(250).call(zoom.scaleBy,action==='in'?1.6:0.625);});
+    // +/- controls
+    const ctrl=svg.append('g').attr('transform','translate(12,12)');
+    [['+',0,1.6],['-',28,0.625]].forEach(([lbl,dy,factor])=>{
+      const b=ctrl.append('g').attr('transform',`translate(0,${dy})`).style('cursor','pointer');
+      b.append('rect').attr('width',26).attr('height',24).attr('rx',5).attr('fill','rgba(255,255,255,0.92)').attr('stroke','rgba(0,0,0,0.12)').attr('stroke-width',0.5);
+      b.append('text').attr('x',13).attr('y',16).attr('text-anchor','middle').attr('font-size',16).attr('fill','#444').text(lbl);
+      b.on('click',ev=>{ev.stopPropagation();svg.transition().duration(250).call(zoom.scaleBy,factor);});
     });
 
-    // Legend
-    const lW=110,lH=7,lX=W-lW-12,lY=H-22;
-    const defs=svg.append('defs');
-    const grad=defs.append('linearGradient').attr('id','hGrd').attr('x1','0%').attr('x2','100%');
-    [0,0.25,0.5,0.75,1].forEach(t=>grad.append('stop').attr('offset',t*100+'%').attr('stop-color',cs(mx*t)));
-    svg.append('rect').attr('x',lX).attr('y',lY).attr('width',lW).attr('height',lH).attr('rx',3).attr('fill','url(#hGrd)');
-    svg.append('text').attr('x',lX).attr('y',lY+15).attr('font-size',9).attr('fill','#999').text('0');
-    const mxL=metric==='aov'?'₹'+Math.round(mx/1000)+'k':metric==='renewal'||metric==='disc'?Math.round(mx)+'%':mx>=1000?(mx/1000).toFixed(1)+'k':mx;
-    svg.append('text').attr('x',lX+lW).attr('y',lY+15).attr('font-size',9).attr('fill','#999').attr('text-anchor','end').text(mxL);
+    // Initial legend
+    updateLegend(svg,stateCs,stateMx,W,H);
 
     drawnRef.current=true;
-  },[stateData,metric]);
+  },[stateData,districtData,metric]);
 
-  function resetToIndia(d3,svg,zoom,W,H,path,g,backBtn,stateLabelDiv){
-    activeRef.current=null;
-    backBtn.style('display','none');
-    stateLabelDiv.style('display','none');
-    g.selectAll('path').transition().duration(400)
-      .attr('opacity',1).attr('stroke','#fff').attr('stroke-width',0.7);
-    svg.transition().duration(500).ease(d3.easeCubicInOut)
-      .call(zoom.transform,d3.zoomIdentity);
+  function updateLegend(svg,cs,mx,W,H){
+    svg.selectAll('.legend-group').remove();
+    const lG=svg.append('g').attr('class','legend-group');
+    const lW=110,lH=7,lX=W-lW-12,lY=H-22;
+    const defs=svg.select('defs').empty()?svg.append('defs'):svg.select('defs');
+    defs.selectAll('#hGrd').remove();
+    const grad=defs.append('linearGradient').attr('id','hGrd').attr('x1','0%').attr('x2','100%');
+    [0,0.25,0.5,0.75,1].forEach(t=>grad.append('stop').attr('offset',t*100+'%').attr('stop-color',cs(mx*t)));
+    lG.append('rect').attr('x',lX).attr('y',lY).attr('width',lW).attr('height',lH).attr('rx',3).attr('fill','url(#hGrd)');
+    lG.append('text').attr('x',lX).attr('y',lY+15).attr('font-size',9).attr('fill','#999').text('0');
+    const mxL=metric==='aov'?'₹'+Math.round(mx/1000)+'k':metric==='renewal'||metric==='disc'?Math.round(mx)+'%':mx>=1000?(mx/1000).toFixed(1)+'k':mx;
+    lG.append('text').attr('x',lX+lW).attr('y',lY+15).attr('font-size',9).attr('fill','#999').attr('text-anchor','end').text(mxL);
   }
 
   useEffect(()=>{
     function tryDraw(){
       if(!window.d3||!window.d3.geoMercator){setTimeout(tryDraw,150);return;}
-      if(geoRef.current){draw();return;}
-      fetch('/india.json')
-        .then(r=>{if(!r.ok)throw new Error(`india.json ${r.status}`);return r.json();})
-        .then(geo=>{geoRef.current=geo;draw();})
-        .catch(e=>{const w=wrapRef.current;if(w)w.innerHTML=`<div style="padding:48px;text-align:center;color:#E24B4A;font-size:13px">Map failed: ${e.message}</div>`;});
+      const needState=!geoStateRef.current;
+      const needDist=!geoDistRef.current;
+      const fetches=[];
+      if(needState)fetches.push(fetch('/india.json').then(r=>r.json()).then(g=>{geoStateRef.current=g;}));
+      if(needDist)fetches.push(fetch('/india_districts.json').then(r=>r.json()).then(g=>{geoDistRef.current=g;}));
+      Promise.all(fetches).then(()=>draw()).catch(e=>{
+        const w=wrapRef.current;if(w)w.innerHTML=`<div style="padding:48px;text-align:center;color:#E24B4A;font-size:13px">Map error: ${e.message}</div>`;
+      });
     }
     tryDraw();
   },[draw]);
 
   useEffect(()=>{
     let t;
-    const obs=new ResizeObserver(()=>{clearTimeout(t);t=setTimeout(()=>{if(drawnRef.current&&geoRef.current&&window.d3)draw();},150);});
+    const obs=new ResizeObserver(()=>{clearTimeout(t);t=setTimeout(()=>{if(drawnRef.current&&geoStateRef.current&&geoDistRef.current&&window.d3)draw();},150);});
     if(wrapRef.current)obs.observe(wrapRef.current);
     return()=>{obs.disconnect();clearTimeout(t);};
   },[draw]);
@@ -263,7 +321,7 @@ function ST({children}){return<div style={{fontSize:11,fontWeight:500,color:'#aa
 
 /* ── Main page ── */
 export default function Dashboard(){
-  const[url,setUrl]=useState(''),[oSheet,setOSheet]=useState('Orders'),[pSheet,setPSheet]=useState('India Post Pincode');
+  const[url,setUrl]=useState(''),[oSheet,setOSheet]=useState('Sheet1'),[pSheet,setPSheet]=useState('Sheet2');
   const[status,setStatus]=useState({msg:'',type:''}),[appData,setAppData]=useState(null);
   const[filter,setFilter]=useState('all'),[tab,setTab]=useState('charts'),[mapMet,setMapMet]=useState('orders');
   const cRef=useRef({});
@@ -319,11 +377,40 @@ export default function Dashboard(){
       pSub[ps]=(pSub[ps]||0)+1;
     });
     Object.keys(state).forEach(k=>{const d=state[k];d.aov=d.orders?Math.round(d.rev/d.orders):0;d.renewal=d.orders?Math.round(d.renC/d.orders*100):0;d.disc=d.orders?Math.round(d.discC/d.orders*100):0;});
+    // District data: state → { districtName → {orders,rev,renC,discC} }
+    const districtRaw={};
+    Object.keys(state).forEach(st=>{districtRaw[st]={};});
+    rows.forEach(r=>{
+      const st=getState(r);
+      const pc=col(r,'Shipping Pincode','shipping_pincode').toString().trim();
+      const di=(appData?.pm[pc]?.city)||col(r,'Shipping City','shipping_city')||'Unknown';
+      if(!districtRaw[st])districtRaw[st]={};
+      if(!districtRaw[st][di])districtRaw[st][di]={orders:0,rev:0,renC:0,discC:0};
+      const d=districtRaw[st][di];
+      d.orders++;
+      d.rev+=parseFloat(col(r,'Total Price','total_price').replace(/[^0-9.]/g,''))||0;
+      const ct=getCT(r);if(ct==='renewal')d.renC++;
+      if((col(r,'Discount Code','discount_code')||'').trim())d.discC++;
+    });
+    // Derive district metrics
+    const districtData={};
+    Object.keys(districtRaw).forEach(st=>{
+      districtData[st]={};
+      Object.keys(districtRaw[st]).forEach(di=>{
+        const d=districtRaw[st][di];
+        districtData[st][di]={
+          orders:d.orders,
+          aov:d.orders?Math.round(d.rev/d.orders):0,
+          renewal:d.orders?Math.round(d.renC/d.orders*100):0,
+          disc:d.orders?Math.round(d.discC/d.orders*100):0,
+        };
+      });
+    });
     const t15=Object.entries(city).sort((a,b)=>b[1].orders-a[1].orders).slice(0,15);
     const tot=rows.length,totR=rows.reduce((s,r)=>s+(parseFloat(col(r,'Total Price','total_price').replace(/[^0-9.]/g,''))||0),0);
     const totRen=rows.filter(r=>getCT(r)==='renewal').length,totNew=rows.filter(r=>getCT(r)==='new').length;
     const totD=rows.filter(r=>(col(r,'Discount Code','discount_code')||'').trim()).length;
-    return{t15,state,tot,totR,totRen,totNew,totD,pDur,pSub,cities:Object.keys(city).length};
+    return{t15,state,districtData,tot,totR,totRen,totNew,totD,pDur,pSub,cities:Object.keys(city).length};
   }
 
   const m=appData?calc():null;
@@ -443,8 +530,8 @@ export default function Dashboard(){
                   <span style={{fontSize:12,color:'#888'}}>Show:</span>
                   {Object.entries(mmL).map(([k,l])=>(<button key={k} onClick={()=>setMapMet(k)} style={{fontSize:12,padding:'5px 14px',borderRadius:20,border:'0.5px solid',borderColor:mapMet===k?'#185FA5':'#ccc',background:mapMet===k?'#185FA5':'#fff',color:mapMet===k?'#fff':'#555',cursor:'pointer'}}>{l}</button>))}
                 </div>
-                <CCard title={`India heatmap — ${mmL[mapMet]} by state`} sub="Click a state to zoom in · Scroll to zoom · Drag to pan · Hover for details">
-                  <IndiaHeatmap stateData={m.state} metric={mapMet}/>
+                <CCard title={`India heatmap — ${mmL[mapMet]} by state`} sub="Click a state → see district breakdown · Scroll to zoom · Drag to pan">
+                  <IndiaHeatmap stateData={m.state} districtData={m.districtData} metric={mapMet}/>
                 </CCard>
                 <div style={{marginTop:16,display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:10}}>
                   {topStates.map(([st,d])=>(
