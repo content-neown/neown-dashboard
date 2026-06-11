@@ -321,7 +321,7 @@ function ST({children}){return<div style={{fontSize:11,fontWeight:500,color:'#aa
 
 /* ── Main page ── */
 export default function Dashboard(){
-  const[url,setUrl]=useState(''),[oSheet,setOSheet]=useState('Sheet1'),[pSheet,setPSheet]=useState('Sheet2');
+  const[url,setUrl]=useState(''),[oSheet,setOSheet]=useState('orders'),[pSheet,setPSheet]=useState('india post pincode');
   const[status,setStatus]=useState({msg:'',type:''}),[appData,setAppData]=useState(null);
   const[filter,setFilter]=useState('all'),[tab,setTab]=useState('charts'),[mapMet,setMapMet]=useState('orders');
   const cRef=useRef({});
