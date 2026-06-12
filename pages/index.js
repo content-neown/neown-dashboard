@@ -26,8 +26,8 @@ function parseLI(raw){
 const SM={'andhra pradesh':'Andhra Pradesh','arunachal pradesh':'Arunachal Pradesh','assam':'Assam','bihar':'Bihar','chhattisgarh':'Chhattisgarh','goa':'Goa','gujarat':'Gujarat','haryana':'Haryana','himachal pradesh':'Himachal Pradesh','jharkhand':'Jharkhand','karnataka':'Karnataka','kerala':'Kerala','madhya pradesh':'Madhya Pradesh','maharashtra':'Maharashtra','manipur':'Manipur','meghalaya':'Meghalaya','mizoram':'Mizoram','nagaland':'Nagaland','odisha':'Orissa','orissa':'Orissa','punjab':'Punjab','rajasthan':'Rajasthan','sikkim':'Sikkim','tamil nadu':'Tamil Nadu','tamilnadu':'Tamil Nadu','telangana':'Andhra Pradesh','tripura':'Tripura','uttar pradesh':'Uttar Pradesh','uttarakhand':'Uttaranchal','uttaranchal':'Uttaranchal','west bengal':'West Bengal','jammu and kashmir':'Jammu and Kashmir','jammu & kashmir':'Jammu and Kashmir','j & k':'Jammu and Kashmir','delhi':'Delhi','new delhi':'Delhi','nct of delhi':'Delhi','chandigarh':'Chandigarh','puducherry':'Puducherry','pondicherry':'Puducherry'};
 function normState(s){if(!s)return null;return SM[s.toLowerCase().trim()]||null;}
 
-/* ── India Map: state choropleth → district drill-down with borders + breakdown ── */
-function IndiaHeatmap({stateData,districtData,metric,onDistrictData}){
+/* ── India Map: state choropleth → region drill-down with bubbles + breakdown ── */
+function IndiaHeatmap({stateData,districtData,metric,onDistrictData,geoLevel}){
   const wrapRef=useRef(null),geoStateRef=useRef(null),geoDistRef=useRef(null),aliasRef=useRef(null);
   const zoomRef=useRef(null),drawnRef=useRef(false),modeRef=useRef('state'),activeStateRef=useRef(null);
 
@@ -123,7 +123,7 @@ function IndiaHeatmap({stateData,districtData,metric,onDistrictData}){
           `<div style="font-weight:500;font-size:13px;margin-bottom:4px">${nm}</div>`+
           `<div style="color:#444">${mLbl(metric)}: <strong>${fmtV(sd[metric],metric)}</strong></div>`+
           `<div style="color:#aaa;font-size:11px;margin-top:3px">${sd.orders.toLocaleString('en-IN')} orders · AOV ₹${sd.aov.toLocaleString('en-IN')} · ${sd.renewal}% renewal</div>`+
-          `<div style="color:#999;font-size:11px;margin-top:2px;font-style:italic">Click to see districts →</div>`
+          `<div style="color:#999;font-size:11px;margin-top:2px;font-style:italic">Click to see regions →</div>`
         );
       })
       .on('mousemove',function(event){
@@ -167,7 +167,7 @@ function IndiaHeatmap({stateData,districtData,metric,onDistrictData}){
     function drillDown(d3,svg,zoom,W,H,path,feat,g,stG,districtG,bubbleG,lblG,bc,back){
       const stateName=feat.properties.NAME_1;
       if(activeStateRef.current===stateName){resetAll();return;}
-      activeStateRef.current=stateName; modeRef.current='district';
+      activeStateRef.current=stateName; modeRef.current='region';
 
       // Zoom bounds
       const[[x0,y0],[x1,y1]]=path.bounds(feat);
@@ -231,7 +231,7 @@ function IndiaHeatmap({stateData,districtData,metric,onDistrictData}){
               ? `<div style="color:#444">${mLbl(metric)}: <strong>${fmtV(dd[metric],metric)}</strong></div>`+
                 `<div style="color:#aaa;font-size:11px;margin-top:3px">${dd.orders.toLocaleString('en-IN')} orders · AOV ₹${dd.aov.toLocaleString('en-IN')} · ${dd.renewal}% renewal</div>`+
                 `<div style="color:#aaa;font-size:11px">${dd.pincodeCount} pincode${dd.pincodeCount!==1?'s':''}</div>`
-              : `<div style="color:#aaa;font-size:12px;margin-top:2px">No orders in this district</div>`)
+              : `<div style="color:#aaa;font-size:12px;margin-top:2px">No orders in this region</div>`)
           );
         })
         .on('mousemove',function(event){
@@ -287,15 +287,15 @@ function IndiaHeatmap({stateData,districtData,metric,onDistrictData}){
       bc.style('display','block').html(
         `<span style="color:#888">India</span> <span style="color:#ccc"> › </span>`+
         `<span style="color:#185FA5;font-weight:500">${stateName}</span>`+
-        `<span style="color:#999;font-size:11px"> · ${dEntries.length} districts</span>`
+        `<span style="color:#999;font-size:11px"> · ${dEntries.length} regions</span>`
       );
       back.style('display','block');
 
       // Update legend to district scale
-      updateLegend(svg,dCs,dMx,W,H,'district');
+      updateLegend(svg,dCs,dMx,W,H,'region');
 
       // Pass district data up for breakdown table
-      if(onDistrictData) onDistrictData(stateName, dEntries.map(([name,d])=>({name,...d})).sort((a,b)=>b.orders-a.orders));
+      if(onDistrictData) onDistrictData(stateName, dEntries.map(([name,d])=>({name,...d})).sort((a,b)=>b.orders-a.orders)); // regions
     }
 
     function resetAll(){
@@ -322,7 +322,7 @@ function IndiaHeatmap({stateData,districtData,metric,onDistrictData}){
       lg.append('text').attr('x',lX).attr('y',lY+15).attr('font-size',9).attr('fill','#999').text('0');
       const mxL=metric==='aov'?'₹'+Math.round(mx/1000)+'k':metric==='renewal'||metric==='disc'?Math.round(mx)+'%':mx>=1000?(mx/1000).toFixed(1)+'k':mx;
       lg.append('text').attr('x',lX+lW).attr('y',lY+15).attr('font-size',9).attr('fill','#999').attr('text-anchor','end').text(mxL);
-      if(mode==='district'){
+      if(mode==='region'){
         lg.append('circle').attr('cx',lX-10).attr('cy',lY+3).attr('r',4).attr('fill','rgba(24,95,165,0.75)');
         lg.append('text').attr('x',lX-22).attr('y',lY+7).attr('font-size',9).attr('fill','#999').attr('text-anchor','end').text('= order volume');
       }
@@ -339,7 +339,7 @@ function IndiaHeatmap({stateData,districtData,metric,onDistrictData}){
         districtG.selectAll('path').attr('stroke-width',0.6/tr.k);
         bubbleG.selectAll('circle').attr('stroke-width',0.8/tr.k);
         lblG.selectAll('text').attr('font-size',9/Math.sqrt(tr.k));
-        if(tr.k<=1.05&&modeRef.current!=='state')resetAll();
+        if(tr.k<=1.05&&modeRef.current==='region')resetAll();
         tt.style('opacity','0');
       });
 
@@ -384,7 +384,7 @@ function IndiaHeatmap({stateData,districtData,metric,onDistrictData}){
 }
 
 /* ── District breakdown table ── */
-function DistrictBreakdown({stateName,districts,metric,pincodeRaw}){
+function RegionBreakdown({stateName,districts,metric,pincodeRaw}){
   if(!stateName||!districts||!districts.length) return null;
   const[expanded,setExpanded]=useState(null);
   const fmtV=(v,m)=>{
@@ -401,13 +401,13 @@ function DistrictBreakdown({stateName,districts,metric,pincodeRaw}){
   }
   return(
     <div style={{background:'#fff',border:'0.5px solid #e5e5e3',borderRadius:12,padding:18,marginTop:16}}>
-      <div style={{fontSize:14,fontWeight:500,marginBottom:3}}>{stateName} — district breakdown</div>
-      <div style={{fontSize:12,color:'#888',marginBottom:14}}>{districts.length} districts with orders · click a district to see pincode breakdown</div>
+      <div style={{fontSize:14,fontWeight:500,marginBottom:3}}>{stateName} — region breakdown</div>
+      <div style={{fontSize:12,color:'#888',marginBottom:14}}>{districts.length} regions with orders · click a region to see pincode breakdown</div>
       <div style={{overflowX:'auto'}}>
         <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
           <thead>
             <tr style={{borderBottom:'0.5px solid #e5e5e3'}}>
-              {['District','Orders','AOV','Renewal','Disc %','Pincodes'].map(h=>(
+              {['Region','Orders','AOV','Renewal','Disc %','Pincodes'].map(h=>(
                 <th key={h} style={{padding:'6px 12px',textAlign:h==='District'?'left':'right',color:'#888',fontWeight:400,fontSize:11,whiteSpace:'nowrap'}}>{h}</th>
               ))}
             </tr>
@@ -440,7 +440,7 @@ function DistrictBreakdown({stateName,districts,metric,pincodeRaw}){
                     <tr style={{borderBottom:'0.5px solid #e5e5e3'}}>
                       <td colSpan={6} style={{padding:'0 12px 14px 12px',background:'#f7f9ff'}}>
                         <div style={{fontSize:11,color:'#888',margin:'10px 0 8px',fontWeight:500,textTransform:'uppercase',letterSpacing:'0.05em'}}>
-                          Pincode breakdown — {d.name}
+                          Pincode breakdown — {d.name} region
                         </div>
                         <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
                           <thead>
@@ -818,11 +818,12 @@ function ST({children}){return<div style={{fontSize:11,fontWeight:500,color:'#aa
 
 /* ── Main page ── */
 export default function Dashboard(){
-  const[url,setUrl]=useState('https://docs.google.com/spreadsheets/d/1R3YTJLE-J3D_GMNjRC4GGdqNssmopDZ0TO4YuCPi5ww/edit?usp=sharing'),[oSheet,setOSheet]=useState('orders'),[pSheet,setPSheet]=useState('india post pincode');
+  const[url,setUrl]=useState(''),[oSheet,setOSheet]=useState('Sheet1'),[pSheet,setPSheet]=useState('Sheet2');
   const[drillState,setDrillState]=useState(null),[drillDistricts,setDrillDistricts]=useState(null);
   const[status,setStatus]=useState({msg:'',type:''}),[appData,setAppData]=useState(null);
   const[filter,setFilter]=useState('all'),[tab,setTab]=useState('charts'),[mapMet,setMapMet]=useState('orders');
   const[dateFrom,setDateFrom]=useState(''),[dateTo,setDateTo]=useState(''),[showCustom,setShowCustom]=useState(false);
+  const[geoLevel,setGeoLevel]=useState('district'); // district | region | circle | division
   const cRef=useRef({}),chartsRef2=useRef({});
 
   useEffect(()=>{
@@ -840,13 +841,26 @@ export default function Dashboard(){
       const[oT,pT]=await Promise.all([oR.text(),pR.text()]);
       const orders=parseCSV(oT),pincodes=parseCSV(pT);
       const pm={};
-      pincodes.forEach(r=>{const pc=col(r,'pincode','Pincode').toString().trim();if(pc)pm[pc]={city:col(r,'district','District','officename')||'Unknown',state:normState(col(r,'statename','Statename','state')),lat:parseFloat(col(r,'latitude','Latitude')||0),lng:parseFloat(col(r,'longitude','Longitude')||0)};});
+      pincodes.forEach(r=>{
+        const pc=col(r,'pincode','Pincode').toString().trim();
+        if(!pc)return;
+        pm[pc]={
+          district: col(r,'district','District','officename')||'Unknown',
+          region:   col(r,'regionname','Regionname','region','Region')||col(r,'district','District','officename')||'Unknown',
+          circle:   col(r,'circlename','Circlename','circle','Circle')||col(r,'statename','Statename')||'Unknown',
+          division: col(r,'divisionname','Divisionname','division','Division')||col(r,'district','District')||'Unknown',
+          state:    normState(col(r,'statename','Statename','state')),
+          lat:      parseFloat(col(r,'latitude','Latitude')||0),
+          lng:      parseFloat(col(r,'longitude','Longitude')||0),
+        };
+      });
       setStatus({msg:`Loaded ${orders.length.toLocaleString('en-IN')} orders + ${pincodes.length.toLocaleString('en-IN')} pincode records.`,type:'ok'});
       setAppData({orders,pm});
     }catch(e){setStatus({msg:e.message,type:'err'});}
   }
 
-  function getCity(r){const pc=col(r,'Shipping Pincode','shipping_pincode').toString().trim();if(appData?.pm[pc])return appData.pm[pc].city;return col(r,'Shipping City','shipping_city')||'Unknown';}
+  function getGeo(r,level='district'){const pc=col(r,'Shipping Pincode','shipping_pincode').toString().trim();const pm=appData?.pm[pc];if(pm)return pm[level]||pm.district||'Unknown';return col(r,'Shipping City','shipping_city')||'Unknown';}
+  function getCity(r){return getGeo(r,'district');}
   function getState(r){const pc=col(r,'Shipping Pincode','shipping_pincode').toString().trim();if(appData?.pm[pc]?.state)return appData.pm[pc].state;return normState(col(r,'Shipping State','shipping_state'))||'Unknown';}
 
   function filtRows(){
@@ -871,7 +885,7 @@ export default function Dashboard(){
     const rows=filtRows();if(!rows.length||!appData)return null;
     const city={},state={},pDur={},pSub={};
     rows.forEach(r=>{
-      const ci=getCity(r),st=getState(r);
+      const ci=getGeo(r,geoLevel),st=getState(r);
       if(!city[ci])city[ci]={orders:0,rev:0,ren:0,newU:0,oth:0,disc:0,books:0,workshop:0,workbook:0,combo:0};
       if(!state[st])state[st]={orders:0,rev:0,renC:0,discC:0};
       const c=city[ci],s=state[st];
@@ -896,7 +910,7 @@ export default function Dashboard(){
       const pc=col(r,'Shipping Pincode','shipping_pincode').toString().trim();
       const pm=appData?.pm[pc];
       if(!pm||!pm.state)return;
-      const st=pm.state, di=pm.city||'Unknown';
+      const st=pm.state, di=pm[geoLevel]||pm.district||'Unknown'; // di = region name
       if(!distRaw[st])distRaw[st]={};
       if(!distRaw[st][di])distRaw[st][di]={orders:0,rev:0,renC:0,discC:0,lats:[],lngs:[],pincodes:new Set()};
       const d=distRaw[st][di];
@@ -994,7 +1008,7 @@ export default function Dashboard(){
     const tot=rows.length,totR=rows.reduce((s,r)=>s+(parseFloat(col(r,'Total Price','total_price').replace(/[^0-9.]/g,''))||0),0);
     const totRen=rows.filter(r=>getCT(r)==='renewal').length,totNew=rows.filter(r=>getCT(r)==='new').length;
     const totD=rows.filter(r=>(col(r,'Discount Code','discount_code')||'').trim()).length;
-    return{t15,state,districtData,pincodeRaw,pp,tot,totR,totRen,totNew,totD,pDur,pSub,cities:Object.keys(city).length};
+    return{t15,state,districtData,pincodeRaw,pp,tot,totR,totRen,totNew,totD,pDur,pSub,cities:Object.keys(city).length // regions count};
   }
 
   const m=appData?calc():null;
@@ -1024,7 +1038,7 @@ export default function Dashboard(){
 
         <div style={{marginBottom:24}}>
           <h1 style={{fontSize:20,fontWeight:500,marginBottom:3}}>neOwn — location dashboard</h1>
-          <p style={{fontSize:13,color:'#777'}}>Live data from your Google Sheets</p>
+          <p style={{fontSize:13,color:'#777'}}>Live data from your Google Sheets · grouped by region</p>
         </div>
 
         <div style={{background:'#fff',border:'0.5px solid #ddd',borderRadius:12,padding:22,marginBottom:22}}>
@@ -1052,6 +1066,13 @@ export default function Dashboard(){
               {fBtns.map(({k,l})=>(<button key={k} onClick={()=>{setFilter(k);setShowCustom(false);}} style={{fontSize:12,padding:'5px 14px',borderRadius:20,border:'0.5px solid',borderColor:filter===k?'#185FA5':'#ccc',background:filter===k?'#185FA5':'#fff',color:filter===k?'#fff':'#555',cursor:'pointer'}}>{l}</button>))}
               <button onClick={()=>{setFilter('custom');setShowCustom(true);}} style={{fontSize:12,padding:'5px 14px',borderRadius:20,border:'0.5px solid',borderColor:filter==='custom'?'#185FA5':'#ccc',background:filter==='custom'?'#185FA5':'#fff',color:filter==='custom'?'#fff':'#555',cursor:'pointer'}}>Custom range</button>
             </div>
+            {/* Geo level toggle */}
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginTop:8}}>
+              <span style={{fontSize:12,color:'#888'}}>Group by:</span>
+              {[['district','District'],['region','Region'],['circle','Circle'],['division','Division']].map(([k,l])=>(
+                <button key={k} onClick={()=>setGeoLevel(k)} style={{fontSize:12,padding:'5px 14px',borderRadius:20,border:'0.5px solid',borderColor:geoLevel===k?'#185FA5':'#ccc',background:geoLevel===k?'#185FA5':'#fff',color:geoLevel===k?'#fff':'#555',cursor:'pointer'}}>{l}</button>
+              ))}
+            </div>
             {showCustom&&(
               <div style={{marginTop:10,display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',background:'#f7f9ff',border:'0.5px solid #dde8f7',borderRadius:10,padding:'12px 16px'}}>
                 <span style={{fontSize:12,color:'#888'}}>From:</span>
@@ -1073,7 +1094,7 @@ export default function Dashboard(){
 
         {m&&(
           <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(148px,1fr))',gap:10,marginBottom:20}}>
-            <MCard label="Total orders" value={m.tot.toLocaleString('en-IN')} sub={`${m.cities} cities`}/>
+            <MCard label="Total orders" value={m.tot.toLocaleString('en-IN')} sub={`${m.cities} regions`}/>
             <MCard label="Overall AOV" value={'₹'+Math.round(m.totR/m.tot).toLocaleString('en-IN')} sub="per order"/>
             <MCard label="Renewal rate" value={Math.round(m.totRen/m.tot*100)+'%'} sub="of total orders"/>
             <MCard label="Churn rate" value={Math.round((1-m.totRen/m.tot)*100)+'%'} sub="non-renewals"/>
@@ -1092,21 +1113,21 @@ export default function Dashboard(){
 
             {tab==='charts'&&(
               <>
-                <ST>Orders by city</ST>
-                <CCard title="Top cities by order volume" sub="Pincode → district; top 15 cities">
+                <ST>Orders by region</ST>
+                <CCard title="Top regions by order volume" sub="Pincode → region mapping; top 15 regions">
                   <div style={{position:'relative',height:Math.max(280,m.t15.length*34+80)}}><canvas id="cityOrders" role="img" aria-label="Orders by city"/></div>
                 </CCard>
                 <ST>AOV by city</ST>
-                <CCard title="Average order value — top 15 cities" sub="₹ AOV per city">
+                <CCard title="Average order value — top 15 regions" sub="₹ AOV per region">
                   <div style={{position:'relative',height:280}}><canvas id="aovChart" role="img" aria-label="AOV by city"/></div>
                 </CCard>
                 <ST>Renewal, new & churn</ST>
-                <CCard title="Customer type split — top 15 cities" sub="% of city orders">
+                <CCard title="Customer type split — top 15 regions" sub="% of region orders">
                   <Leg items={[{l:'Renewal',c:C.blue},{l:'New',c:C.green},{l:'Other / lapsed',c:C.red}]}/>
                   <div style={{position:'relative',height:300}}><canvas id="renewalChart" role="img" aria-label="Customer type by city"/></div>
                 </CCard>
                 <ST>Discount redemptions</ST>
-                <CCard title="Discount code usage — top 15 cities" sub="% of city orders with a discount code">
+                <CCard title="Discount code usage — top 15 regions" sub="% of region orders with a discount code">
                   <div style={{position:'relative',height:280}}><canvas id="discChart" role="img" aria-label="Discount rate by city"/></div>
                 </CCard>
                 <ST>Pack & product split</ST>
@@ -1120,7 +1141,7 @@ export default function Dashboard(){
                     <div style={{position:'relative',height:210}}><canvas id="packSubChart" role="img" aria-label="Pack type"/></div>
                   </CCard>
                 </div>
-                <CCard title="Product type — top 15 cities" sub="Books vs workshops vs workbooks vs toys/combo">
+                <CCard title="Product type — top 15 regions" sub="Books vs workshops vs workbooks vs toys/combo">
                   <Leg items={[{l:'Books',c:C.blue},{l:'Workshops',c:C.green},{l:'Workbooks',c:C.amber},{l:'Toys/Combo',c:C.purple}]}/>
                   <div style={{position:'relative',height:300}}><canvas id="productChart" role="img" aria-label="Product type by city"/></div>
                 </CCard>
@@ -1133,9 +1154,9 @@ export default function Dashboard(){
                   <span style={{fontSize:12,color:'#888'}}>Show:</span>
                   {Object.entries(mmL).map(([k,l])=>(<button key={k} onClick={()=>setMapMet(k)} style={{fontSize:12,padding:'5px 14px',borderRadius:20,border:'0.5px solid',borderColor:mapMet===k?'#185FA5':'#ccc',background:mapMet===k?'#185FA5':'#fff',color:mapMet===k?'#fff':'#555',cursor:'pointer'}}>{l}</button>))}
                 </div>
-                <CCard title={`India heatmap — ${mmL[mapMet]} by state`} sub="Click a state → district view with borders · Drag to pan · Scroll to zoom">
-                  <IndiaHeatmap stateData={m.state} districtData={m.districtData} metric={mapMet} onDistrictData={(st,dists)=>{setDrillState(st);setDrillDistricts(dists);}}/>
-                <DistrictBreakdown stateName={drillState} districts={drillDistricts} metric={mapMet} pincodeRaw={m?.pincodeRaw}/>
+                <CCard title={`India heatmap — ${mmL[mapMet]} by state`} sub={`Click a state → ${geoLevel} view with borders · Drag to pan · Scroll to zoom`}>
+                  <IndiaHeatmap stateData={m.state} districtData={m.districtData} metric={mapMet} geoLevel={geoLevel} onDistrictData={(st,dists)=>{setDrillState(st);setDrillDistricts(dists);}}/>
+                <RegionBreakdown stateName={drillState} districts={drillDistricts} metric={mapMet} pincodeRaw={m?.pincodeRaw}/>
                 </CCard>
                 <div style={{marginTop:16,display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:10}}>
                   {topStates.map(([st,d])=>(
