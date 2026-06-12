@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Head from 'next/head';
 
 const C={blue:'#185FA5',green:'#1D9E75',amber:'#BA7517',red:'#E24B4A',purple:'#534AB7',coral:'#D85A30',gray:'#888780'};
@@ -384,20 +384,25 @@ function IndiaHeatmap({stateData,districtData,metric,onDistrictData}){
 }
 
 /* ── District breakdown table ── */
-function DistrictBreakdown({stateName,districts,metric}){
+function DistrictBreakdown({stateName,districts,metric,pincodeRaw}){
   if(!stateName||!districts||!districts.length) return null;
+  const[expanded,setExpanded]=useState(null);
   const fmtV=(v,m)=>{
     if(v===undefined||v===null||isNaN(v))return'—';
     if(m==='aov')return'₹'+Math.round(v).toLocaleString('en-IN');
     if(m==='renewal'||m==='disc')return Math.round(v)+'%';
     return Number(v).toLocaleString('en-IN');
   };
-  const mLbl=m=>({aov:'AOV',renewal:'Renewal',disc:'Disc %',orders:'Orders'}[m]||m);
   const maxOrders=Math.max(...districts.map(d=>d.orders),1);
+  // Get pincode rows for a district
+  function getPincodes(distName){
+    const raw=(pincodeRaw||{})[stateName]?.[distName]||{};
+    return Object.entries(raw).sort((a,b)=>b[1].orders-a[1].orders);
+  }
   return(
     <div style={{background:'#fff',border:'0.5px solid #e5e5e3',borderRadius:12,padding:18,marginTop:16}}>
       <div style={{fontSize:14,fontWeight:500,marginBottom:3}}>{stateName} — district breakdown</div>
-      <div style={{fontSize:12,color:'#888',marginBottom:14}}>{districts.length} districts with orders · sorted by order volume</div>
+      <div style={{fontSize:12,color:'#888',marginBottom:14}}>{districts.length} districts with orders · click a district to see pincode breakdown</div>
       <div style={{overflowX:'auto'}}>
         <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
           <thead>
@@ -408,21 +413,66 @@ function DistrictBreakdown({stateName,districts,metric}){
             </tr>
           </thead>
           <tbody>
-            {districts.map((d,i)=>(
-              <tr key={d.name} style={{borderBottom:'0.5px solid #f0f0ee',background:i%2===0?'#fff':'#fafaf8'}}>
-                <td style={{padding:'8px 12px',fontWeight:500}}>
-                  <div style={{display:'flex',alignItems:'center',gap:8}}>
-                    <div style={{width:Math.max(3,Math.round(d.orders/maxOrders*60)),height:6,background:'#185FA5',borderRadius:3,opacity:0.7,flexShrink:0}}/>
-                    {d.name}
-                  </div>
-                </td>
-                <td style={{padding:'8px 12px',textAlign:'right',fontWeight:500}}>{d.orders.toLocaleString('en-IN')}</td>
-                <td style={{padding:'8px 12px',textAlign:'right'}}>₹{d.aov.toLocaleString('en-IN')}</td>
-                <td style={{padding:'8px 12px',textAlign:'right',color:d.renewal>=50?'#1D9E75':d.renewal>=30?'#BA7517':'#E24B4A',fontWeight:500}}>{d.renewal}%</td>
-                <td style={{padding:'8px 12px',textAlign:'right'}}>{d.disc}%</td>
-                <td style={{padding:'8px 12px',textAlign:'right',color:'#888'}}>{d.pincodeCount||1}</td>
-              </tr>
-            ))}
+            {districts.map((d,i)=>{
+              const isOpen=expanded===d.name;
+              const pcs=isOpen?getPincodes(d.name):[];
+              const pcMax=pcs.length?Math.max(...pcs.map(([,v])=>v.orders),1):1;
+              return(
+                <React.Fragment key={d.name}>
+                  <tr
+                    onClick={()=>setExpanded(isOpen?null:d.name)}
+                    style={{borderBottom:isOpen?'none':'0.5px solid #f0f0ee',background:isOpen?'#f0f5ff':i%2===0?'#fff':'#fafaf8',cursor:'pointer'}}
+                  >
+                    <td style={{padding:'9px 12px',fontWeight:500}}>
+                      <div style={{display:'flex',alignItems:'center',gap:8}}>
+                        <div style={{width:Math.max(3,Math.round(d.orders/maxOrders*60)),height:6,background:'#185FA5',borderRadius:3,opacity:0.7,flexShrink:0}}/>
+                        <span style={{color:isOpen?'#185FA5':'#1a1a1a'}}>{d.name}</span>
+                        <span style={{fontSize:10,color:'#aaa',marginLeft:'auto'}}>{isOpen?'▲':'▼'}</span>
+                      </div>
+                    </td>
+                    <td style={{padding:'9px 12px',textAlign:'right',fontWeight:600}}>{d.orders.toLocaleString('en-IN')}</td>
+                    <td style={{padding:'9px 12px',textAlign:'right'}}>₹{d.aov.toLocaleString('en-IN')}</td>
+                    <td style={{padding:'9px 12px',textAlign:'right',color:d.renewal>=50?'#1D9E75':d.renewal>=30?'#BA7517':'#E24B4A',fontWeight:500}}>{d.renewal}%</td>
+                    <td style={{padding:'9px 12px',textAlign:'right'}}>{d.disc}%</td>
+                    <td style={{padding:'9px 12px',textAlign:'right',color:'#888'}}>{d.pincodeCount||1}</td>
+                  </tr>
+                  {isOpen&&(
+                    <tr style={{borderBottom:'0.5px solid #e5e5e3'}}>
+                      <td colSpan={6} style={{padding:'0 12px 14px 12px',background:'#f7f9ff'}}>
+                        <div style={{fontSize:11,color:'#888',margin:'10px 0 8px',fontWeight:500,textTransform:'uppercase',letterSpacing:'0.05em'}}>
+                          Pincode breakdown — {d.name}
+                        </div>
+                        <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+                          <thead>
+                            <tr style={{borderBottom:'0.5px solid #e5e5e3'}}>
+                              {['Pincode','Orders','AOV','Renewal','Disc %'].map(h=>(
+                                <th key={h} style={{padding:'5px 10px',textAlign:h==='Pincode'?'left':'right',color:'#aaa',fontWeight:400}}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {pcs.map(([pc,v],pi)=>(
+                              <tr key={pc} style={{borderBottom:'0.5px solid #eee',background:pi%2===0?'#f7f9ff':'#f2f5fd'}}>
+                                <td style={{padding:'6px 10px',fontWeight:500,color:'#185FA5'}}>
+                                  <div style={{display:'flex',alignItems:'center',gap:6}}>
+                                    <div style={{width:Math.max(2,Math.round(v.orders/pcMax*40)),height:4,background:'#185FA5',borderRadius:2,opacity:0.5,flexShrink:0}}/>
+                                    {pc}
+                                  </div>
+                                </td>
+                                <td style={{padding:'6px 10px',textAlign:'right',fontWeight:600}}>{v.orders.toLocaleString('en-IN')}</td>
+                                <td style={{padding:'6px 10px',textAlign:'right'}}>₹{v.aov.toLocaleString('en-IN')}</td>
+                                <td style={{padding:'6px 10px',textAlign:'right',color:v.renewal>=50?'#1D9E75':v.renewal>=30?'#BA7517':'#E24B4A',fontWeight:500}}>{v.renewal}%</td>
+                                <td style={{padding:'6px 10px',textAlign:'right'}}>{v.disc}%</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -772,6 +822,7 @@ export default function Dashboard(){
   const[drillState,setDrillState]=useState(null),[drillDistricts,setDrillDistricts]=useState(null);
   const[status,setStatus]=useState({msg:'',type:''}),[appData,setAppData]=useState(null);
   const[filter,setFilter]=useState('all'),[tab,setTab]=useState('charts'),[mapMet,setMapMet]=useState('orders');
+  const[dateFrom,setDateFrom]=useState(''),[dateTo,setDateTo]=useState(''),[showCustom,setShowCustom]=useState(false);
   const cRef=useRef({}),chartsRef2=useRef({});
 
   useEffect(()=>{
@@ -800,6 +851,17 @@ export default function Dashboard(){
 
   function filtRows(){
     if(!appData)return[];
+    if(filter==='custom'){
+      const from=dateFrom?new Date(dateFrom):null;
+      const to=dateTo?new Date(dateTo+'T23:59:59'):null;
+      return appData.orders.filter(r=>{
+        const x=new Date(col(r,'Created At','created_at'));
+        if(isNaN(x))return false;
+        if(from&&x<from)return false;
+        if(to&&x>to)return false;
+        return true;
+      });
+    }
     if(filter==='all')return appData.orders;
     const d=parseInt(filter),c=new Date();c.setDate(c.getDate()-d);
     return appData.orders.filter(r=>{const x=new Date(col(r,'Created At','created_at'));return!isNaN(x)&&x>=c;});
@@ -829,6 +891,7 @@ export default function Dashboard(){
     // District-level aggregation: group pincodes by district name per state
     // districtData[stateName][districtName] = {orders, aov, renewal, disc, lat, lng (centroid), pincodeCount}
     const distRaw={}; // state → district → {orders,rev,renC,discC,lats,lngs,pincodes}
+    const pcRaw={};   // state → district → pincode → {orders,rev,renC,discC}
     rows.forEach(r=>{
       const pc=col(r,'Shipping Pincode','shipping_pincode').toString().trim();
       const pm=appData?.pm[pc];
@@ -843,6 +906,32 @@ export default function Dashboard(){
       if((col(r,'Discount Code','discount_code')||'').trim())d.discC++;
       if(pm.lat&&pm.lng){d.lats.push(pm.lat);d.lngs.push(pm.lng);}
       d.pincodes.add(pc);
+      // pincode-level tracking
+      if(!pcRaw[st])pcRaw[st]={};
+      if(!pcRaw[st][di])pcRaw[st][di]={};
+      if(!pcRaw[st][di][pc])pcRaw[st][di][pc]={orders:0,rev:0,renC:0,discC:0};
+      const p=pcRaw[st][di][pc];
+      p.orders++;
+      p.rev+=parseFloat(col(r,'Total Price','total_price').replace(/[^0-9.]/g,''))||0;
+      const ct2=getCT(r);if(ct2==='renewal')p.renC++;
+      if((col(r,'Discount Code','discount_code')||'').trim())p.discC++;
+    });
+    // Finalise pincodeRaw
+    const pincodeRaw={};
+    Object.keys(pcRaw).forEach(st=>{
+      pincodeRaw[st]={};
+      Object.keys(pcRaw[st]).forEach(di=>{
+        pincodeRaw[st][di]={};
+        Object.keys(pcRaw[st][di]).forEach(pc=>{
+          const p=pcRaw[st][di][pc];
+          pincodeRaw[st][di][pc]={
+            orders:p.orders,
+            aov:p.orders?Math.round(p.rev/p.orders):0,
+            renewal:p.orders?Math.round(p.renC/p.orders*100):0,
+            disc:p.orders?Math.round(p.discC/p.orders*100):0,
+          };
+        });
+      });
     });
     const districtData={};
     Object.keys(distRaw).forEach(st=>{
@@ -905,7 +994,7 @@ export default function Dashboard(){
     const tot=rows.length,totR=rows.reduce((s,r)=>s+(parseFloat(col(r,'Total Price','total_price').replace(/[^0-9.]/g,''))||0),0);
     const totRen=rows.filter(r=>getCT(r)==='renewal').length,totNew=rows.filter(r=>getCT(r)==='new').length;
     const totD=rows.filter(r=>(col(r,'Discount Code','discount_code')||'').trim()).length;
-    return{t15,state,districtData,pp,tot,totR,totRen,totNew,totD,pDur,pSub,cities:Object.keys(city).length};
+    return{t15,state,districtData,pincodeRaw,pp,tot,totR,totRen,totNew,totD,pDur,pSub,cities:Object.keys(city).length};
   }
 
   const m=appData?calc():null;
@@ -957,9 +1046,28 @@ export default function Dashboard(){
         </div>
 
         {appData&&(
-          <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:18}}>
-            <span style={{fontSize:12,color:'#888'}}>Period:</span>
-            {fBtns.map(({k,l})=>(<button key={k} onClick={()=>setFilter(k)} style={{fontSize:12,padding:'5px 14px',borderRadius:20,border:'0.5px solid',borderColor:filter===k?'#185FA5':'#ccc',background:filter===k?'#185FA5':'#fff',color:filter===k?'#fff':'#555',cursor:'pointer'}}>{l}</button>))}
+          <div style={{marginBottom:18}}>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+              <span style={{fontSize:12,color:'#888'}}>Period:</span>
+              {fBtns.map(({k,l})=>(<button key={k} onClick={()=>{setFilter(k);setShowCustom(false);}} style={{fontSize:12,padding:'5px 14px',borderRadius:20,border:'0.5px solid',borderColor:filter===k?'#185FA5':'#ccc',background:filter===k?'#185FA5':'#fff',color:filter===k?'#fff':'#555',cursor:'pointer'}}>{l}</button>))}
+              <button onClick={()=>{setFilter('custom');setShowCustom(true);}} style={{fontSize:12,padding:'5px 14px',borderRadius:20,border:'0.5px solid',borderColor:filter==='custom'?'#185FA5':'#ccc',background:filter==='custom'?'#185FA5':'#fff',color:filter==='custom'?'#fff':'#555',cursor:'pointer'}}>Custom range</button>
+            </div>
+            {showCustom&&(
+              <div style={{marginTop:10,display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',background:'#f7f9ff',border:'0.5px solid #dde8f7',borderRadius:10,padding:'12px 16px'}}>
+                <span style={{fontSize:12,color:'#888'}}>From:</span>
+                <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}
+                  style={{height:34,border:'0.5px solid #ccc',borderRadius:7,padding:'0 10px',fontSize:13,background:'#fff',outline:'none',cursor:'pointer'}}/>
+                <span style={{fontSize:12,color:'#888'}}>To:</span>
+                <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}
+                  style={{height:34,border:'0.5px solid #ccc',borderRadius:7,padding:'0 10px',fontSize:13,background:'#fff',outline:'none',cursor:'pointer'}}/>
+                {(dateFrom||dateTo)&&(
+                  <span style={{fontSize:11,color:'#888',background:'#fff',border:'0.5px solid #ddd',borderRadius:6,padding:'4px 10px'}}>
+                    {dateFrom||'start'} → {dateTo||'today'}
+                  </span>
+                )}
+                <button onClick={()=>{setDateFrom('');setDateTo('');}} style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:'0.5px solid #ccc',background:'#fff',color:'#888',cursor:'pointer'}}>Clear</button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1027,7 +1135,7 @@ export default function Dashboard(){
                 </div>
                 <CCard title={`India heatmap — ${mmL[mapMet]} by state`} sub="Click a state → district view with borders · Drag to pan · Scroll to zoom">
                   <IndiaHeatmap stateData={m.state} districtData={m.districtData} metric={mapMet} onDistrictData={(st,dists)=>{setDrillState(st);setDrillDistricts(dists);}}/>
-                <DistrictBreakdown stateName={drillState} districts={drillDistricts} metric={mapMet}/>
+                <DistrictBreakdown stateName={drillState} districts={drillDistricts} metric={mapMet} pincodeRaw={m?.pincodeRaw}/>
                 </CCard>
                 <div style={{marginTop:16,display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:10}}>
                   {topStates.map(([st,d])=>(
