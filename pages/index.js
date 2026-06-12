@@ -431,6 +431,335 @@ function DistrictBreakdown({stateName,districts,metric}){
 }
 
 
+
+/* ══════════════════════════════════════
+   PACK & PRODUCT TAB
+   ══════════════════════════════════════ */
+
+function PackProductTab({pp, chartsRef2}){
+  useEffect(()=>{
+    if(!pp) return;
+    const go=()=>renderPackProductCharts(pp,chartsRef2);
+    if(window.Chart) go();
+    else{ const s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js'; s.onload=go; document.head.appendChild(s); }
+  },[pp]);
+
+  if(!pp) return null;
+
+  const PACK_COLORS={'1 month':'#534AB7','2 months':'#888780','3 months':'#185FA5','6 months':'#1D9E75','12 months':'#BA7517'};
+  const PROD_COLORS={books:'#185FA5',workshop:'#1D9E75',workbook:'#BA7517',combo:'#D85A30',toys:'#534AB7'};
+  const PACK_ORDER=['1 month','2 months','3 months','6 months','12 months'];
+  const PROD_ORDER=['books','workshop','workbook','combo','toys'];
+  const PROD_LABELS={books:'Books',workshop:'Workshops',workbook:'Workbooks',combo:'Toys+Books',toys:'Toys'};
+  const SUB_ORDER=['standard','sibling','mini','gift','combo'];
+  const SUB_LABELS={standard:'Standard',sibling:'Sibling plan',mini:'Mini pack',gift:'Gift',combo:'Toys+Books'};
+  const SUB_COLORS={standard:'#185FA5',sibling:'#1D9E75',mini:'#888780',gift:'#534AB7',combo:'#D85A30'};
+
+  const packs=PACK_ORDER.filter(k=>pp.byPack[k]);
+  const prods=PROD_ORDER.filter(k=>pp.byProduct[k]);
+  const subs=SUB_ORDER.filter(k=>pp.bySub[k]);
+
+  function Leg({items}){
+    return(
+      <div style={{display:'flex',flexWrap:'wrap',gap:10,marginBottom:10,fontSize:12,color:'#555'}}>
+        {items.map(({l,c})=>(<span key={l} style={{display:'flex',alignItems:'center',gap:5}}>
+          <span style={{width:10,height:10,borderRadius:2,background:c,flexShrink:0}}/>{l}
+        </span>))}
+      </div>
+    );
+  }
+
+  function StatCard({label,value,sub,color}){
+    return(
+      <div style={{background:'#fff',border:'0.5px solid #e5e5e3',borderRadius:10,padding:'14px 16px'}}>
+        <div style={{fontSize:11,color:'#888',marginBottom:4}}>{label}</div>
+        <div style={{fontSize:20,fontWeight:500,color:color||'#1a1a1a'}}>{value}</div>
+        {sub&&<div style={{fontSize:11,color:'#aaa',marginTop:2}}>{sub}</div>}
+      </div>
+    );
+  }
+
+  // Best and worst performers
+  const packsSorted=[...packs].sort((a,b)=>(pp.byPack[b]?.renewal||0)-(pp.byPack[a]?.renewal||0));
+  const bestPackRenewal=packsSorted[0];
+  const prodsSorted=[...prods].sort((a,b)=>(pp.byProduct[b]?.aov||0)-(pp.byProduct[a]?.aov||0));
+  const bestProdAov=prodsSorted[0];
+
+  return(
+    <div>
+      {/* ── KPI summary row ── */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10,marginBottom:20}}>
+        {packs.map(pk=>(
+          <StatCard key={pk} label={pk}
+            value={pp.byPack[pk]?.orders.toLocaleString('en-IN')||0}
+            sub={`₹${(pp.byPack[pk]?.aov||0).toLocaleString('en-IN')} AOV · ${pp.byPack[pk]?.renewal||0}% renewal`}
+            color={PACK_COLORS[pk]}
+          />
+        ))}
+      </div>
+
+      {/* ── Row 1: Pack charts ── */}
+      <div style={{fontSize:11,fontWeight:500,color:'#aaa',textTransform:'uppercase',letterSpacing:'0.08em',margin:'0 0 12px',paddingBottom:6,borderBottom:'0.5px solid #e5e5e3'}}>Pack duration breakdown</div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:14,marginBottom:16}}>
+        <div style={{background:'#fff',border:'0.5px solid #e5e5e3',borderRadius:12,padding:16}}>
+          <div style={{fontSize:13,fontWeight:500,marginBottom:12}}>Orders by pack</div>
+          <div style={{position:'relative',height:200}}><canvas id="pp-pack-orders"/></div>
+        </div>
+        <div style={{background:'#fff',border:'0.5px solid #e5e5e3',borderRadius:12,padding:16}}>
+          <div style={{fontSize:13,fontWeight:500,marginBottom:12}}>AOV by pack</div>
+          <div style={{position:'relative',height:200}}><canvas id="pp-pack-aov"/></div>
+        </div>
+        <div style={{background:'#fff',border:'0.5px solid #e5e5e3',borderRadius:12,padding:16}}>
+          <div style={{fontSize:13,fontWeight:500,marginBottom:12}}>Renewal rate by pack</div>
+          <div style={{position:'relative',height:200}}><canvas id="pp-pack-renewal"/></div>
+        </div>
+      </div>
+
+      {/* ── Row 2: Product charts ── */}
+      <div style={{fontSize:11,fontWeight:500,color:'#aaa',textTransform:'uppercase',letterSpacing:'0.08em',margin:'24px 0 12px',paddingBottom:6,borderBottom:'0.5px solid #e5e5e3'}}>Product type breakdown</div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:14,marginBottom:16}}>
+        <div style={{background:'#fff',border:'0.5px solid #e5e5e3',borderRadius:12,padding:16}}>
+          <div style={{fontSize:13,fontWeight:500,marginBottom:12}}>Orders by product</div>
+          <div style={{position:'relative',height:200}}><canvas id="pp-prod-orders"/></div>
+        </div>
+        <div style={{background:'#fff',border:'0.5px solid #e5e5e3',borderRadius:12,padding:16}}>
+          <div style={{fontSize:13,fontWeight:500,marginBottom:12}}>AOV by product</div>
+          <div style={{position:'relative',height:200}}><canvas id="pp-prod-aov"/></div>
+        </div>
+        <div style={{background:'#fff',border:'0.5px solid #e5e5e3',borderRadius:12,padding:16}}>
+          <div style={{fontSize:13,fontWeight:500,marginBottom:12}}>Renewal by product</div>
+          <div style={{position:'relative',height:200}}><canvas id="pp-prod-renewal"/></div>
+        </div>
+      </div>
+
+      {/* ── Row 3: Pack subtype ── */}
+      <div style={{fontSize:11,fontWeight:500,color:'#aaa',textTransform:'uppercase',letterSpacing:'0.08em',margin:'24px 0 12px',paddingBottom:6,borderBottom:'0.5px solid #e5e5e3'}}>Subscription type breakdown</div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:14,marginBottom:16}}>
+        <div style={{background:'#fff',border:'0.5px solid #e5e5e3',borderRadius:12,padding:16}}>
+          <div style={{fontSize:13,fontWeight:500,marginBottom:12}}>Orders by subscription type</div>
+          <div style={{position:'relative',height:200}}><canvas id="pp-sub-orders"/></div>
+        </div>
+        <div style={{background:'#fff',border:'0.5px solid #e5e5e3',borderRadius:12,padding:16}}>
+          <div style={{fontSize:13,fontWeight:500,marginBottom:12}}>AOV by subscription type</div>
+          <div style={{position:'relative',height:200}}><canvas id="pp-sub-aov"/></div>
+        </div>
+        <div style={{background:'#fff',border:'0.5px solid #e5e5e3',borderRadius:12,padding:16}}>
+          <div style={{fontSize:13,fontWeight:500,marginBottom:12}}>Renewal by subscription type</div>
+          <div style={{position:'relative',height:200}}><canvas id="pp-sub-renewal"/></div>
+        </div>
+      </div>
+
+      {/* ── Cross-tab: Pack × Product ── */}
+      <div style={{fontSize:11,fontWeight:500,color:'#aaa',textTransform:'uppercase',letterSpacing:'0.08em',margin:'24px 0 12px',paddingBottom:6,borderBottom:'0.5px solid #e5e5e3'}}>Pack × product cross-breakdown</div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginBottom:16}}>
+        <div style={{background:'#fff',border:'0.5px solid #e5e5e3',borderRadius:12,padding:16}}>
+          <div style={{fontSize:13,fontWeight:500,marginBottom:4}}>Orders — pack duration × product type</div>
+          <div style={{fontSize:12,color:'#888',marginBottom:10}}>Stacked bars per pack, split by product</div>
+          <Leg items={prods.map(p=>({l:PROD_LABELS[p],c:PROD_COLORS[p]}))}/>
+          <div style={{position:'relative',height:220}}><canvas id="pp-cross-orders"/></div>
+        </div>
+        <div style={{background:'#fff',border:'0.5px solid #e5e5e3',borderRadius:12,padding:16}}>
+          <div style={{fontSize:13,fontWeight:500,marginBottom:4}}>AOV — pack duration × product type</div>
+          <div style={{fontSize:12,color:'#888',marginBottom:10}}>Grouped bars: AOV per product within each pack</div>
+          <Leg items={prods.map(p=>({l:PROD_LABELS[p],c:PROD_COLORS[p]}))}/>
+          <div style={{position:'relative',height:220}}><canvas id="pp-cross-aov"/></div>
+        </div>
+      </div>
+
+      {/* ── Detailed breakdown table ── */}
+      <div style={{fontSize:11,fontWeight:500,color:'#aaa',textTransform:'uppercase',letterSpacing:'0.08em',margin:'24px 0 12px',paddingBottom:6,borderBottom:'0.5px solid #e5e5e3'}}>Full pack × product table</div>
+      <PackProductTable pp={pp} packs={packs} prods={prods} packColors={PACK_COLORS} prodColors={PROD_COLORS} prodLabels={PROD_LABELS}/>
+    </div>
+  );
+}
+
+function PackProductTable({pp,packs,prods,packColors,prodColors,prodLabels}){
+  const [view,setView]=useState('orders'); // orders | aov | renewal
+  const cols=['orders','aov','renewal'];
+  const fmt=(v,t)=>t==='orders'?v.toLocaleString('en-IN'):t==='aov'?'₹'+v.toLocaleString('en-IN'):v+'%';
+  const maxOrders=Math.max(...packs.map(pk=>pp.byPack[pk]?.orders||0),1);
+
+  return(
+    <div style={{background:'#fff',border:'0.5px solid #e5e5e3',borderRadius:12,padding:18}}>
+      <div style={{display:'flex',gap:6,marginBottom:14}}>
+        {[['orders','Orders'],['aov','AOV'],['renewal','Renewal']].map(([k,l])=>(
+          <button key={k} onClick={()=>setView(k)} style={{fontSize:12,padding:'4px 12px',borderRadius:20,border:'0.5px solid',borderColor:view===k?'#185FA5':'#ccc',background:view===k?'#185FA5':'#fff',color:view===k?'#fff':'#555',cursor:'pointer'}}>{l}</button>
+        ))}
+      </div>
+      <div style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+          <thead>
+            <tr style={{borderBottom:'0.5px solid #e5e5e3'}}>
+              <th style={{padding:'6px 12px',textAlign:'left',color:'#888',fontWeight:400,fontSize:11}}>Pack</th>
+              <th style={{padding:'6px 12px',textAlign:'right',color:'#888',fontWeight:400,fontSize:11}}>Total</th>
+              {prods.map(p=>(
+                <th key={p} style={{padding:'6px 12px',textAlign:'right',fontSize:11,fontWeight:500,color:prodColors[p]}}>{prodLabels[p]}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {packs.map((pk,i)=>{
+              const total=pp.byPack[pk];
+              return(
+                <tr key={pk} style={{borderBottom:'0.5px solid #f0f0ee',background:i%2===0?'#fff':'#fafaf8'}}>
+                  <td style={{padding:'9px 12px'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      <div style={{width:Math.max(3,Math.round((total?.orders||0)/maxOrders*50)),height:6,background:packColors[pk],borderRadius:3,flexShrink:0}}/>
+                      <span style={{fontWeight:500,color:packColors[pk]}}>{pk}</span>
+                    </div>
+                  </td>
+                  <td style={{padding:'9px 12px',textAlign:'right',fontWeight:600}}>{fmt(total?.[view]||0,view)}</td>
+                  {prods.map(p=>{
+                    const cell=pp.cross[pk]?.[p];
+                    return(
+                      <td key={p} style={{padding:'9px 12px',textAlign:'right',color:cell?'#1a1a1a':'#ccc'}}>
+                        {cell?fmt(cell[view]||0,view):'—'}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+            {/* Totals row */}
+            <tr style={{borderTop:'1px solid #e5e5e3',background:'#f5f5f3',fontWeight:600}}>
+              <td style={{padding:'9px 12px',fontSize:11,color:'#888'}}>ALL PACKS</td>
+              <td style={{padding:'9px 12px',textAlign:'right'}}>{fmt(pp.overall[view]||0,view)}</td>
+              {prods.map(p=>(
+                <td key={p} style={{padding:'9px 12px',textAlign:'right'}}>
+                  {fmt(pp.byProduct[p]?.[view]||0,view)}
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function renderPackProductCharts(pp, cRef){
+  const Ch=window.Chart; if(!Ch) return;
+  const tC='rgba(0,0,0,0.42)',gC='rgba(0,0,0,0.06)';
+
+  const PACK_ORDER=['1 month','2 months','3 months','6 months','12 months'];
+  const PROD_ORDER=['books','workshop','workbook','combo','toys'];
+  const PROD_LABELS={books:'Books',workshop:'Workshops',workbook:'Workbooks',combo:'Toys+Books',toys:'Toys'};
+  const PACK_COLORS={'1 month':'#534AB7','2 months':'#888780','3 months':'#185FA5','6 months':'#1D9E75','12 months':'#BA7517'};
+  const PROD_COLORS={books:'#185FA5',workshop:'#1D9E75',workbook:'#BA7517',combo:'#D85A30',toys:'#534AB7'};
+  const SUB_ORDER=['standard','sibling','mini','gift','combo'];
+  const SUB_LABELS={standard:'Standard',sibling:'Sibling plan',mini:'Mini pack',gift:'Gift',combo:'Toys+Books'};
+  const SUB_COLORS={standard:'#185FA5',sibling:'#1D9E75',mini:'#888780',gift:'#534AB7',combo:'#D85A30'};
+
+  const packs=PACK_ORDER.filter(k=>pp.byPack[k]);
+  const prods=PROD_ORDER.filter(k=>pp.byProduct[k]);
+  const subs=SUB_ORDER.filter(k=>pp.bySub[k]);
+
+  function kill(id){if(cRef.current[id]){cRef.current[id].destroy();delete cRef.current[id];}}
+  function mkBar(id,labels,datasets,opts={}){
+    kill(id); const c=document.getElementById(id); if(!c) return;
+    cRef.current[id]=new Ch(c,{type:'bar',data:{labels,datasets},options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},...(opts.plugins||{})},
+      scales:{
+        x:{ticks:{color:tC,font:{size:11},autoSkip:false},grid:{color:gC},...(opts.xScale||{})},
+        y:{ticks:{color:tC,font:{size:11},...(opts.yTick||{})},grid:{color:gC},...(opts.yScale||{})}
+      },
+      ...opts
+    }});
+  }
+
+  // Pack — orders
+  mkBar('pp-pack-orders',packs,
+    [{data:packs.map(k=>pp.byPack[k]?.orders||0),backgroundColor:packs.map(k=>PACK_COLORS[k]),borderRadius:5,borderSkipped:false}],
+    {plugins:{tooltip:{callbacks:{label:v=>v.raw.toLocaleString('en-IN')+' orders'}}}}
+  );
+  // Pack — AOV
+  mkBar('pp-pack-aov',packs,
+    [{data:packs.map(k=>pp.byPack[k]?.aov||0),backgroundColor:packs.map(k=>PACK_COLORS[k]),borderRadius:5,borderSkipped:false}],
+    {yTick:{callback:v=>'₹'+v.toLocaleString('en-IN')},plugins:{tooltip:{callbacks:{label:v=>'₹'+v.raw.toLocaleString('en-IN')}}}}
+  );
+  // Pack — renewal
+  mkBar('pp-pack-renewal',packs,
+    [{data:packs.map(k=>pp.byPack[k]?.renewal||0),backgroundColor:packs.map(k=>PACK_COLORS[k]),borderRadius:5,borderSkipped:false}],
+    {yTick:{callback:v=>v+'%'},yScale:{max:100},plugins:{tooltip:{callbacks:{label:v=>v.raw+'%'}}}}
+  );
+
+  // Product — orders
+  mkBar('pp-prod-orders',prods.map(k=>PROD_LABELS[k]),
+    [{data:prods.map(k=>pp.byProduct[k]?.orders||0),backgroundColor:prods.map(k=>PROD_COLORS[k]),borderRadius:5,borderSkipped:false}],
+    {plugins:{tooltip:{callbacks:{label:v=>v.raw.toLocaleString('en-IN')+' orders'}}}}
+  );
+  // Product — AOV
+  mkBar('pp-prod-aov',prods.map(k=>PROD_LABELS[k]),
+    [{data:prods.map(k=>pp.byProduct[k]?.aov||0),backgroundColor:prods.map(k=>PROD_COLORS[k]),borderRadius:5,borderSkipped:false}],
+    {yTick:{callback:v=>'₹'+v.toLocaleString('en-IN')},plugins:{tooltip:{callbacks:{label:v=>'₹'+v.raw.toLocaleString('en-IN')}}}}
+  );
+  // Product — renewal
+  mkBar('pp-prod-renewal',prods.map(k=>PROD_LABELS[k]),
+    [{data:prods.map(k=>pp.byProduct[k]?.renewal||0),backgroundColor:prods.map(k=>PROD_COLORS[k]),borderRadius:5,borderSkipped:false}],
+    {yTick:{callback:v=>v+'%'},yScale:{max:100},plugins:{tooltip:{callbacks:{label:v=>v.raw+'%'}}}}
+  );
+
+  // Sub type — orders
+  mkBar('pp-sub-orders',subs.map(k=>SUB_LABELS[k]),
+    [{data:subs.map(k=>pp.bySub[k]?.orders||0),backgroundColor:subs.map(k=>SUB_COLORS[k]),borderRadius:5,borderSkipped:false}],
+    {plugins:{tooltip:{callbacks:{label:v=>v.raw.toLocaleString('en-IN')+' orders'}}}}
+  );
+  // Sub type — AOV
+  mkBar('pp-sub-aov',subs.map(k=>SUB_LABELS[k]),
+    [{data:subs.map(k=>pp.bySub[k]?.aov||0),backgroundColor:subs.map(k=>SUB_COLORS[k]),borderRadius:5,borderSkipped:false}],
+    {yTick:{callback:v=>'₹'+v.toLocaleString('en-IN')},plugins:{tooltip:{callbacks:{label:v=>'₹'+v.raw.toLocaleString('en-IN')}}}}
+  );
+  // Sub type — renewal
+  mkBar('pp-sub-renewal',subs.map(k=>SUB_LABELS[k]),
+    [{data:subs.map(k=>pp.bySub[k]?.renewal||0),backgroundColor:subs.map(k=>SUB_COLORS[k]),borderRadius:5,borderSkipped:false}],
+    {yTick:{callback:v=>v+'%'},yScale:{max:100},plugins:{tooltip:{callbacks:{label:v=>v.raw+'%'}}}}
+  );
+
+  // Cross: orders stacked (pack × product)
+  kill('pp-cross-orders');
+  const cco=document.getElementById('pp-cross-orders');
+  if(cco) cRef.current['pp-cross-orders']=new Ch(cco,{
+    type:'bar',
+    data:{
+      labels:packs,
+      datasets:prods.map(p=>({
+        label:PROD_LABELS[p],
+        data:packs.map(pk=>pp.cross[pk]?.[p]?.orders||0),
+        backgroundColor:PROD_COLORS[p],
+        borderRadius:0,borderSkipped:false,stack:'s'
+      }))
+    },
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{mode:'index',callbacks:{label:v=>v.dataset.label+': '+v.raw.toLocaleString('en-IN')}}},
+      scales:{x:{stacked:true,ticks:{color:tC,font:{size:11}}},y:{stacked:true,ticks:{color:tC,font:{size:11}}}}}
+  });
+
+  // Cross: AOV grouped (pack × product)
+  kill('pp-cross-aov');
+  const cca=document.getElementById('pp-cross-aov');
+  if(cca) cRef.current['pp-cross-aov']=new Ch(cca,{
+    type:'bar',
+    data:{
+      labels:packs,
+      datasets:prods.map(p=>({
+        label:PROD_LABELS[p],
+        data:packs.map(pk=>pp.cross[pk]?.[p]?.aov||0),
+        backgroundColor:PROD_COLORS[p],
+        borderRadius:4,borderSkipped:false
+      }))
+    },
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{mode:'index',callbacks:{label:v=>v.dataset.label+': ₹'+v.raw.toLocaleString('en-IN')}}},
+      scales:{x:{ticks:{color:tC,font:{size:11}}},y:{ticks:{color:tC,font:{size:11},callback:v=>'₹'+v.toLocaleString('en-IN')}}}}
+  });
+}
+
+
 /* ── UI helpers ── */
 function MCard({label,value,sub}){return(<div style={{background:'#fff',border:'0.5px solid #e5e5e3',borderRadius:10,padding:'14px 16px'}}><div style={{fontSize:11,color:'#888',marginBottom:4}}>{label}</div><div style={{fontSize:22,fontWeight:500}}>{value}</div>{sub&&<div style={{fontSize:11,color:'#aaa',marginTop:2}}>{sub}</div>}</div>);}
 function Leg({items}){return(<div style={{display:'flex',flexWrap:'wrap',gap:12,marginBottom:10,fontSize:12,color:'#555'}}>{items.map(({l,c})=>(<span key={l} style={{display:'flex',alignItems:'center',gap:5}}><span style={{width:10,height:10,borderRadius:2,background:c,flexShrink:0}}/>{l}</span>))}</div>);}
@@ -443,7 +772,7 @@ export default function Dashboard(){
   const[drillState,setDrillState]=useState(null),[drillDistricts,setDrillDistricts]=useState(null);
   const[status,setStatus]=useState({msg:'',type:''}),[appData,setAppData]=useState(null);
   const[filter,setFilter]=useState('all'),[tab,setTab]=useState('charts'),[mapMet,setMapMet]=useState('orders');
-  const cRef=useRef({});
+  const cRef=useRef({}),chartsRef2=useRef({});
 
   useEffect(()=>{
     if(typeof window==='undefined'||window.d3)return;
@@ -532,11 +861,51 @@ export default function Dashboard(){
         };
       });
     });
+    // ── Pack & Product cross-tabulation ──
+    const ppBP={},ppBProd={},ppBSub={},ppCross={};
+    // accumulators helper
+    function ppAcc(map,key,rv,isRen){
+      if(!map[key])map[key]={orders:0,rev:0,renC:0};
+      map[key].orders++; map[key].rev+=rv; if(isRen)map[key].renC++;
+    }
+    rows.forEach(r=>{
+      const rv=parseFloat(col(r,'Total Price','total_price').replace(/[^0-9.]/g,''))||0;
+      const isRen=getCT(r)==='renewal';
+      const{pt,pd,ps}=parseLI(col(r,'Line Items','line_items'));
+      const prodKey=pt==='toys'?'toys':pt; // books|workshop|workbook|combo|toys
+      if(pd){ ppAcc(ppBP,pd,rv,isRen); }
+      ppAcc(ppBProd,prodKey,rv,isRen);
+      ppAcc(ppBSub,ps,rv,isRen);
+      // cross: pack × product
+      if(pd){
+        if(!ppCross[pd])ppCross[pd]={};
+        ppAcc(ppCross[pd],prodKey,rv,isRen);
+      }
+    });
+    function finalise(map){
+      const out={};
+      Object.keys(map).forEach(k=>{
+        const d=map[k];
+        out[k]={orders:d.orders,aov:d.orders?Math.round(d.rev/d.orders):0,renewal:d.orders?Math.round(d.renC/d.orders*100):0};
+      });
+      return out;
+    }
+    const ppFinalCross={};
+    Object.keys(ppCross).forEach(pk=>{ppFinalCross[pk]=finalise(ppCross[pk]);});
+    const overallRen=rows.filter(r=>getCT(r)==='renewal').length;
+    const overallRev=rows.reduce((s,r)=>s+(parseFloat(col(r,'Total Price','total_price').replace(/[^0-9.]/g,''))||0),0);
+    const pp={
+      byPack:finalise(ppBP),
+      byProduct:finalise(ppBProd),
+      bySub:finalise(ppBSub),
+      cross:ppFinalCross,
+      overall:{orders:rows.length,aov:rows.length?Math.round(overallRev/rows.length):0,renewal:rows.length?Math.round(overallRen/rows.length*100):0}
+    };
     const t15=Object.entries(city).sort((a,b)=>b[1].orders-a[1].orders).slice(0,15);
     const tot=rows.length,totR=rows.reduce((s,r)=>s+(parseFloat(col(r,'Total Price','total_price').replace(/[^0-9.]/g,''))||0),0);
     const totRen=rows.filter(r=>getCT(r)==='renewal').length,totNew=rows.filter(r=>getCT(r)==='new').length;
     const totD=rows.filter(r=>(col(r,'Discount Code','discount_code')||'').trim()).length;
-    return{t15,state,districtData,tot,totR,totRen,totNew,totD,pDur,pSub,cities:Object.keys(city).length};
+    return{t15,state,districtData,pp,tot,totR,totRen,totNew,totD,pDur,pSub,cities:Object.keys(city).length};
   }
 
   const m=appData?calc():null;
@@ -608,7 +977,7 @@ export default function Dashboard(){
         {m&&(
           <>
             <div style={{display:'flex',borderBottom:'0.5px solid #e5e5e3',marginBottom:20}}>
-              {[['charts','Charts'],['map','India heatmap']].map(([k,l])=>(
+              {[['charts','Charts'],['map','India heatmap'],['packproduct','Pack & Product']].map(([k,l])=>(
                 <button key={k} onClick={()=>setTab(k)} style={{padding:'10px 20px',border:'none',borderBottom:tab===k?'2px solid #185FA5':'2px solid transparent',background:'none',fontSize:13,fontWeight:tab===k?500:400,color:tab===k?'#185FA5':'#777',cursor:'pointer'}}>{l}</button>
               ))}
             </div>
@@ -674,6 +1043,10 @@ export default function Dashboard(){
                   ))}
                 </div>
               </>
+            )}
+
+            {tab==='packproduct'&&(
+              <PackProductTab pp={m.pp} chartsRef2={chartsRef2}/>
             )}
           </>
         )}
