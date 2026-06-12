@@ -818,7 +818,7 @@ function ST({children}){return<div style={{fontSize:11,fontWeight:500,color:'#aa
 
 /* ── Main page ── */
 export default function Dashboard(){
-  const[url,setUrl]=useState(''),[oSheet,setOSheet]=useState('Sheet1'),[pSheet,setPSheet]=useState('Sheet2');
+  const[url,setUrl]=useState('https://docs.google.com/spreadsheets/d/1R3YTJLE-J3D_GMNjRC4GGdqNssmopDZ0TO4YuCPi5ww/edit?usp=sharing'),[oSheet,setOSheet]=useState('orders'),[pSheet,setPSheet]=useState('india post pincode');
   const[drillState,setDrillState]=useState(null),[drillDistricts,setDrillDistricts]=useState(null);
   const[status,setStatus]=useState({msg:'',type:''}),[appData,setAppData]=useState(null);
   const[filter,setFilter]=useState('all'),[tab,setTab]=useState('charts'),[mapMet,setMapMet]=useState('orders');
