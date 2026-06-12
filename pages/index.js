@@ -1061,42 +1061,17 @@ export default function Dashboard(){
 
         {appData&&(
           <div style={{marginBottom:18}}>
-
-            {/* ── Row 1: Period filter ── */}
-            <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:10}}>
-              <span style={{fontSize:12,color:'#888',minWidth:44}}>Period:</span>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+              <span style={{fontSize:12,color:'#888'}}>Period:</span>
               {fBtns.map(({k,l})=>(<button key={k} onClick={()=>{setFilter(k);setShowCustom(false);}} style={{fontSize:12,padding:'5px 14px',borderRadius:20,border:'0.5px solid',borderColor:filter===k?'#185FA5':'#ccc',background:filter===k?'#185FA5':'#fff',color:filter===k?'#fff':'#555',cursor:'pointer'}}>{l}</button>))}
               <button onClick={()=>{setFilter('custom');setShowCustom(true);}} style={{fontSize:12,padding:'5px 14px',borderRadius:20,border:'0.5px solid',borderColor:filter==='custom'?'#185FA5':'#ccc',background:filter==='custom'?'#185FA5':'#fff',color:filter==='custom'?'#fff':'#555',cursor:'pointer'}}>Custom range</button>
             </div>
-
-            {/* ── Row 2: View toggle — prominent segmented control ── */}
-            <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
-              <span style={{fontSize:12,color:'#888',minWidth:44}}>View:</span>
-              <div style={{display:'inline-flex',background:'#f0f0ee',borderRadius:10,padding:3,gap:2}}>
-                {[
-                  ['district','District','🏘'],
-                  ['region','Region','📮'],
-                  ['circle','Circle','🔵'],
-                  ['division','Division','📂'],
-                ].map(([k,l,icon])=>(
-                  <button key={k} onClick={()=>setGeoLevel(k)} style={{
-                    fontSize:12,padding:'6px 16px',borderRadius:8,border:'none',
-                    background:geoLevel===k?'#fff':'transparent',
-                    color:geoLevel===k?'#185FA5':'#888',
-                    fontWeight:geoLevel===k?500:400,
-                    cursor:'pointer',
-                    boxShadow:geoLevel===k?'0 1px 4px rgba(0,0,0,0.10)':'none',
-                    transition:'all 0.15s',
-                    whiteSpace:'nowrap',
-                  }}>{icon} {l}</button>
-                ))}
-              </div>
-              <span style={{fontSize:11,color:'#aaa'}}>
-                {geoLevel==='district'?'Individual districts (most precise)':
-                 geoLevel==='region'?'Postal regions (grouped districts)':
-                 geoLevel==='circle'?'Postal circles (state-level zones)':
-                 'Postal divisions (between circle & district)'}
-              </span>
+            {/* Geo level toggle */}
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginTop:8}}>
+              <span style={{fontSize:12,color:'#888'}}>Group by:</span>
+              {[['district','District'],['region','Region'],['circle','Circle'],['division','Division']].map(([k,l])=>(
+                <button key={k} onClick={()=>setGeoLevel(k)} style={{fontSize:12,padding:'5px 14px',borderRadius:20,border:'0.5px solid',borderColor:geoLevel===k?'#185FA5':'#ccc',background:geoLevel===k?'#185FA5':'#fff',color:geoLevel===k?'#fff':'#555',cursor:'pointer'}}>{l}</button>
+              ))}
             </div>
             {showCustom&&(
               <div style={{marginTop:10,display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',background:'#f7f9ff',border:'0.5px solid #dde8f7',borderRadius:10,padding:'12px 16px'}}>
