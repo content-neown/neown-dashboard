@@ -26,28 +26,45 @@ function parseLI(raw){
 const SM={'andhra pradesh':'Andhra Pradesh','arunachal pradesh':'Arunachal Pradesh','assam':'Assam','bihar':'Bihar','chhattisgarh':'Chhattisgarh','goa':'Goa','gujarat':'Gujarat','haryana':'Haryana','himachal pradesh':'Himachal Pradesh','jharkhand':'Jharkhand','karnataka':'Karnataka','kerala':'Kerala','madhya pradesh':'Madhya Pradesh','maharashtra':'Maharashtra','manipur':'Manipur','meghalaya':'Meghalaya','mizoram':'Mizoram','nagaland':'Nagaland','odisha':'Orissa','orissa':'Orissa','punjab':'Punjab','rajasthan':'Rajasthan','sikkim':'Sikkim','tamil nadu':'Tamil Nadu','tamilnadu':'Tamil Nadu','telangana':'Andhra Pradesh','tripura':'Tripura','uttar pradesh':'Uttar Pradesh','uttarakhand':'Uttaranchal','uttaranchal':'Uttaranchal','west bengal':'West Bengal','jammu and kashmir':'Jammu and Kashmir','jammu & kashmir':'Jammu and Kashmir','j & k':'Jammu and Kashmir','delhi':'Delhi','new delhi':'Delhi','nct of delhi':'Delhi','chandigarh':'Chandigarh','puducherry':'Puducherry','pondicherry':'Puducherry'};
 function normState(s){if(!s)return null;return SM[s.toLowerCase().trim()]||null;}
 
-/* ── India Map: state choropleth + pincode bubbles on drill-down ── */
-function IndiaHeatmap({stateData,pincodePoints,metric}){
-  const wrapRef=useRef(null),geoStateRef=useRef(null);
+/* ── India Map: state choropleth → district drill-down with borders + breakdown ── */
+function IndiaHeatmap({stateData,districtData,metric,onDistrictData}){
+  const wrapRef=useRef(null),geoStateRef=useRef(null),geoDistRef=useRef(null),aliasRef=useRef(null);
   const zoomRef=useRef(null),drawnRef=useRef(false),modeRef=useRef('state'),activeStateRef=useRef(null);
 
   const fmtV=(v,m)=>{
-    if(v===undefined||v===null)return'—';
+    if(v===undefined||v===null||isNaN(v))return'—';
     if(m==='aov')return'₹'+Math.round(v).toLocaleString('en-IN');
     if(m==='renewal'||m==='disc')return Math.round(v)+'%';
-    return v.toLocaleString('en-IN');
+    return Number(v).toLocaleString('en-IN');
   };
-  const mLbl=m=>({aov:'AOV',renewal:'Renewal',disc:'Discount',orders:'Orders'}[m]);
+  const mLbl=m=>({aov:'AOV',renewal:'Renewal rate',disc:'Discount rate',orders:'Orders'}[m]||m);
+
+  // Normalize district name for matching
+  function normDist(s){ return (s||'').toLowerCase().trim().replace(/\s+/g,' '); }
+
+  // Resolve pincode district name → GeoJSON district name
+  function resolveDistName(name,aliases){
+    const k=normDist(name);
+    if(aliases[k]) return aliases[k];
+    // Try without common suffixes
+    const stripped=k.replace(/ (district|dist|urban|rural|nagar|city)$/,'').trim();
+    if(aliases[stripped]) return aliases[stripped];
+    // Title case fallback
+    return name.split(' ').map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(' ');
+  }
 
   const draw=useCallback(()=>{
-    const d3=window.d3,wrap=wrapRef.current,geo=geoStateRef.current;
-    if(!d3||!wrap||!geo||!stateData)return;
-    wrap.innerHTML=''; drawnRef.current=false; modeRef.current='state'; activeStateRef.current=null;
+    const d3=window.d3,wrap=wrapRef.current;
+    const geoState=geoStateRef.current,geoDist=geoDistRef.current,aliases=aliasRef.current;
+    if(!d3||!wrap||!geoState||!geoDist||!aliases||!stateData)return;
+
+    wrap.innerHTML='';
+    drawnRef.current=false; modeRef.current='state'; activeStateRef.current=null;
 
     const W=wrap.clientWidth||700,H=Math.min(Math.round(W*0.78),600);
     const svg=d3.select(wrap).append('svg').attr('width','100%').attr('height',H)
       .attr('viewBox',`0 0 ${W} ${H}`).style('display','block').style('cursor','grab');
-    svg.append('rect').attr('width',W).attr('height',H).attr('fill','#f0eeea').attr('rx',8);
+    svg.append('rect').attr('width',W).attr('height',H).attr('fill','#eeecea').attr('rx',8);
 
     const g=svg.append('g');
     const proj=d3.geoMercator().center([82.5,22]).scale(W*1.45).translate([W/2,H/2]);
@@ -64,8 +81,9 @@ function IndiaHeatmap({stateData,pincodePoints,metric}){
     function showTT(event,html){
       const rect=wrap.getBoundingClientRect();
       const x=event.clientX-rect.left,y=event.clientY-rect.top;
-      const lx=x+18+260>wrap.clientWidth?x-270:x+18;
-      tt.style('opacity','1').style('left',lx+'px').style('top',Math.max(8,y-90)+'px').html(html);
+      tt.style('opacity','1')
+        .style('left',(x+18+280>W?x-290:x+18)+'px')
+        .style('top',Math.max(8,y-95)+'px').html(html);
     }
 
     // Breadcrumb
@@ -90,11 +108,11 @@ function IndiaHeatmap({stateData,pincodePoints,metric}){
     const sMx=Math.max(...sVals,1);
     const sCs=d3.scaleSequential([0,sMx],d3.interpolateBlues);
 
-    // State layer
-    const stG=g.append('g');
-    stG.selectAll('path').data(geo.features).join('path')
+    // State paths
+    const stG=g.append('g').attr('class','state-g');
+    stG.selectAll('path').data(geoState.features).join('path')
       .attr('d',path)
-      .attr('fill',d=>{const v=stateData[d.properties.NAME_1]?.[metric]||0;return v>0?sCs(v):'#dddbd6';})
+      .attr('fill',d=>{const v=stateData[d.properties.NAME_1]?.[metric]||0;return v>0?sCs(v):'#d8d5d0';})
       .attr('stroke','#fff').attr('stroke-width',0.7).style('cursor','pointer')
       .on('mouseover',function(event,d){
         if(modeRef.current!=='state')return;
@@ -105,15 +123,14 @@ function IndiaHeatmap({stateData,pincodePoints,metric}){
           `<div style="font-weight:500;font-size:13px;margin-bottom:4px">${nm}</div>`+
           `<div style="color:#444">${mLbl(metric)}: <strong>${fmtV(sd[metric],metric)}</strong></div>`+
           `<div style="color:#aaa;font-size:11px;margin-top:3px">${sd.orders.toLocaleString('en-IN')} orders · AOV ₹${sd.aov.toLocaleString('en-IN')} · ${sd.renewal}% renewal</div>`+
-          `<div style="color:#999;font-size:11px;margin-top:2px;font-style:italic">Click to see pincode breakdown →</div>`
+          `<div style="color:#999;font-size:11px;margin-top:2px;font-style:italic">Click to see districts →</div>`
         );
       })
       .on('mousemove',function(event){
         if(modeRef.current!=='state')return;
         const rect=wrap.getBoundingClientRect();
         const x=event.clientX-rect.left,y=event.clientY-rect.top;
-        const lx=x+18+260>wrap.clientWidth?x-270:x+18;
-        tt.style('left',lx+'px').style('top',Math.max(8,y-90)+'px');
+        tt.style('left',(x+18+280>W?x-290:x+18)+'px').style('top',Math.max(8,y-95)+'px');
       })
       .on('mouseout',function(){
         if(modeRef.current!=='state')return;
@@ -122,17 +139,19 @@ function IndiaHeatmap({stateData,pincodePoints,metric}){
       })
       .on('click',function(event,d){
         event.stopPropagation();tt.style('opacity','0');
-        zoomState(d3,svg,zoom,W,H,path,d,stG,bubbleG,lblG,bc,back);
+        drillDown(d3,svg,zoom,W,H,path,d,g,stG,districtG,bubbleG,lblG,bc,back);
       });
 
-    // Bubble layer (pincode points — shown on drill-down)
-    const bubbleG=g.append('g').style('display','none');
+    // District border layer
+    const districtG=g.append('g').attr('class','district-g').style('display','none');
+    // District bubble layer
+    const bubbleG=g.append('g').attr('class','bubble-g').style('display','none');
 
     // State labels
     const bigSt=['Maharashtra','Rajasthan','Madhya Pradesh','Uttar Pradesh','Karnataka','Gujarat',
       'Andhra Pradesh','Tamil Nadu','Orissa','West Bengal','Bihar','Jharkhand','Chhattisgarh','Haryana','Telangana'];
-    const lblG=g.append('g');
-    lblG.selectAll('text').data(geo.features.filter(f=>bigSt.includes(f.properties.NAME_1))).join('text')
+    const lblG=g.append('g').attr('class','label-g');
+    lblG.selectAll('text').data(geoState.features.filter(f=>bigSt.includes(f.properties.NAME_1))).join('text')
       .attr('pointer-events','none')
       .attr('transform',d=>{const[cx,cy]=path.centroid(d);return`translate(${cx},${cy})`;})
       .attr('text-anchor','middle').attr('dominant-baseline','middle').attr('font-size',9)
@@ -144,83 +163,169 @@ function IndiaHeatmap({stateData,pincodePoints,metric}){
         return v>=1000?(v/1000).toFixed(1)+'k':v;
       });
 
-    // ── Zoom into state + show pincode bubbles ──
-    function zoomState(d3,svg,zoom,W,H,path,d,stG,bubbleG,lblG,bc,back){
-      const nm=d.properties.NAME_1;
-      if(activeStateRef.current===nm){resetAll();return;}
-      activeStateRef.current=nm; modeRef.current='bubble';
+    // ── Drill into state ──
+    function drillDown(d3,svg,zoom,W,H,path,feat,g,stG,districtG,bubbleG,lblG,bc,back){
+      const stateName=feat.properties.NAME_1;
+      if(activeStateRef.current===stateName){resetAll();return;}
+      activeStateRef.current=stateName; modeRef.current='district';
 
-      const[[x0,y0],[x1,y1]]=path.bounds(d);
-      const scale=Math.min(10,Math.min(W/(x1-x0)*0.75,H/(y1-y0)*0.75));
+      // Zoom bounds
+      const[[x0,y0],[x1,y1]]=path.bounds(feat);
+      const scale=Math.min(10,Math.min(W/(x1-x0)*0.72,H/(y1-y0)*0.72));
       const cx=(x0+x1)/2,cy=(y0+y1)/2;
+      const tx=W/2-scale*cx,ty=H/2-scale*cy;
 
-      // Dim states
+      // Dim state layer
       stG.selectAll('path').transition().duration(300)
-        .attr('opacity',f=>f.properties.NAME_1===nm?0.25:0.12)
-        .attr('stroke-width',0.3/(scale));
+        .attr('opacity',f=>f.properties.NAME_1===stateName?0.18:0.08)
+        .attr('stroke-width',0.5/scale);
       lblG.transition().duration(250).attr('opacity',0);
 
-      // Filter pincode points for this state
-      const pts=(pincodePoints||[]).filter(p=>p.state===nm);
-      const pVals=pts.map(p=>p[metric]||0).filter(v=>v>0);
-      const pMx=Math.max(...pVals,1);
-      const pCs=d3.scaleSequential([0,pMx],d3.interpolateOrRd);
-      const rScale=d3.scaleSqrt([0,Math.max(...pts.map(p=>p.orders),1)],[3,28]);
+      // GeoJSON districts for this state
+      // Map state name to GeoJSON state name (handle Telangana → Andhra Pradesh)
+      const geoStateName = stateName==='Telangana'?'Andhra Pradesh':stateName;
+      const stateDists=geoDist.features.filter(f=>f.properties.state===geoStateName);
 
-      bubbleG.style('display',null).selectAll('*').remove();
+      // District order data for this state
+      const dData=districtData?.[stateName]||{};
+      const dEntries=Object.entries(dData);
+      const dVals=dEntries.map(([,d])=>d[metric]||0).filter(v=>v>0);
+      const dMx=Math.max(...dVals,1);
+      const dCs=d3.scaleSequential([0,dMx],d3.interpolateOrRd);
 
-      // Draw pincode bubbles
-      pts.sort((a,b)=>b.orders-a.orders); // draw small ones on top
-      bubbleG.selectAll('circle').data(pts).join('circle')
-        .attr('cx',p=>proj([p.lng,p.lat])[0])
-        .attr('cy',p=>proj([p.lng,p.lat])[1])
-        .attr('r',p=>rScale(p.orders)/scale)
-        .attr('fill',p=>{const v=p[metric]||0;return v>0?pCs(v):'rgba(100,100,100,0.3)';})
-        .attr('fill-opacity',0.82)
-        .attr('stroke','#fff').attr('stroke-width',0.4/scale)
+      // Build lookup: geoJSON district name → order data
+      // Try exact match first, then alias, then fuzzy
+      function findData(geoName){
+        const geoKey=normDist(geoName);
+        // Direct match
+        const direct=dEntries.find(([k])=>normDist(k)===geoKey);
+        if(direct)return{key:direct[0],data:direct[1]};
+        // Via alias (reverse: find pincode district whose alias === this geo name)
+        const viaAlias=dEntries.find(([k])=>normDist(resolveDistName(k,aliases))===geoKey);
+        if(viaAlias)return{key:viaAlias[0],data:viaAlias[1]};
+        // Partial match
+        const partial=dEntries.find(([k])=>normDist(k).includes(geoKey)||geoKey.includes(normDist(k)));
+        if(partial)return{key:partial[0],data:partial[1]};
+        return null;
+      }
+
+      // Draw district borders + fill
+      districtG.style('display',null).selectAll('*').remove();
+      districtG.selectAll('path').data(stateDists).join('path')
+        .attr('d',path)
+        .attr('fill',d=>{
+          const found=findData(d.properties.district);
+          const v=found?found.data[metric]||0:0;
+          return v>0?dCs(v):'rgba(200,195,190,0.5)';
+        })
+        .attr('stroke','rgba(255,255,255,0.9)').attr('stroke-width',0.6/scale)
+        .attr('stroke-linejoin','round')
         .style('cursor','pointer')
-        .on('mouseover',function(event,p){
-          d3.select(this).raise().attr('stroke','#185FA5').attr('stroke-width',1.2/scale).attr('fill-opacity',1);
+        .on('mouseover',function(event,d){
+          d3.select(this).raise().attr('stroke','#185FA5').attr('stroke-width',1.2/scale);
+          const found=findData(d.properties.district);
+          const dd=found?.data;
           showTT(event,
-            `<div style="font-weight:500;font-size:13px;margin-bottom:4px">${p.district}</div>`+
-            `<div style="color:#666;font-size:11px;margin-bottom:4px">Pincode: ${p.pincode}</div>`+
-            `<div style="color:#444">${mLbl(metric)}: <strong>${fmtV(p[metric],metric)}</strong></div>`+
-            `<div style="color:#aaa;font-size:11px;margin-top:3px">${p.orders.toLocaleString('en-IN')} orders · AOV ₹${p.aov.toLocaleString('en-IN')} · ${p.renewal}% renewal</div>`
+            `<div style="font-weight:500;font-size:13px;margin-bottom:4px">${d.properties.district}</div>`+
+            (dd
+              ? `<div style="color:#444">${mLbl(metric)}: <strong>${fmtV(dd[metric],metric)}</strong></div>`+
+                `<div style="color:#aaa;font-size:11px;margin-top:3px">${dd.orders.toLocaleString('en-IN')} orders · AOV ₹${dd.aov.toLocaleString('en-IN')} · ${dd.renewal}% renewal</div>`+
+                `<div style="color:#aaa;font-size:11px">${dd.pincodeCount} pincode${dd.pincodeCount!==1?'s':''}</div>`
+              : `<div style="color:#aaa;font-size:12px;margin-top:2px">No orders in this district</div>`)
           );
         })
         .on('mousemove',function(event){
           const rect=wrap.getBoundingClientRect();
           const x=event.clientX-rect.left,y=event.clientY-rect.top;
-          const lx=x+18+260>wrap.clientWidth?x-270:x+18;
-          tt.style('left',lx+'px').style('top',Math.max(8,y-90)+'px');
+          tt.style('left',(x+18+280>W?x-290:x+18)+'px').style('top',Math.max(8,y-95)+'px');
         })
         .on('mouseout',function(){
-          d3.select(this).attr('stroke','#fff').attr('stroke-width',0.4/scale).attr('fill-opacity',0.82);
+          d3.select(this).attr('stroke','rgba(255,255,255,0.9)').attr('stroke-width',0.6/scale);
           tt.style('opacity','0');
         });
 
-      // Bubble legend (size)
-      updateBubbleLegend(svg,rScale,scale,pCs,pMx,W,H);
+      // Bubbles at district centroids (only for districts with data)
+      const bubblePts=dEntries
+        .filter(([,d])=>d.lat&&d.lng)
+        .map(([name,d])=>({name,lat:d.lat,lng:d.lng,...d}));
 
+      const rScale=d3.scaleSqrt([0,Math.max(...bubblePts.map(p=>p.orders),1)],[4,32]);
+
+      bubbleG.style('display',null).selectAll('*').remove();
+      bubbleG.selectAll('circle')
+        .data(bubblePts.sort((a,b)=>b.orders-a.orders))
+        .join('circle')
+        .attr('cx',p=>{try{return proj([p.lng,p.lat])[0];}catch{return -999;}})
+        .attr('cy',p=>{try{return proj([p.lng,p.lat])[1];}catch{return -999;}})
+        .attr('r',p=>rScale(p.orders)/scale)
+        .attr('fill','rgba(24,95,165,0.75)')
+        .attr('stroke','#fff').attr('stroke-width',0.8/scale)
+        .style('cursor','pointer')
+        .on('mouseover',function(event,p){
+          d3.select(this).raise().attr('fill','rgba(24,95,165,1)').attr('stroke-width',1.5/scale);
+          showTT(event,
+            `<div style="font-weight:500;font-size:13px;margin-bottom:4px">${p.name}</div>`+
+            `<div style="color:#444">${mLbl(metric)}: <strong>${fmtV(p[metric],metric)}</strong></div>`+
+            `<div style="color:#aaa;font-size:11px;margin-top:3px">${p.orders.toLocaleString('en-IN')} orders · AOV ₹${p.aov.toLocaleString('en-IN')} · ${p.renewal}% renewal</div>`+
+            `<div style="color:#aaa;font-size:11px">${p.pincodeCount} pincode${p.pincodeCount!==1?'s':''}</div>`
+          );
+        })
+        .on('mousemove',function(event){
+          const rect=wrap.getBoundingClientRect();
+          const x=event.clientX-rect.left,y=event.clientY-rect.top;
+          tt.style('left',(x+18+280>W?x-290:x+18)+'px').style('top',Math.max(8,y-95)+'px');
+        })
+        .on('mouseout',function(){
+          d3.select(this).attr('fill','rgba(24,95,165,0.75)').attr('stroke-width',0.8/scale);
+          tt.style('opacity','0');
+        });
+
+      // Animate zoom
       svg.transition().duration(650).ease(d3.easeCubicInOut)
-        .call(zoom.transform,d3.zoomIdentity.translate(W/2-scale*cx,H/2-scale*cy).scale(scale));
+        .call(zoom.transform,d3.zoomIdentity.translate(tx,ty).scale(scale));
 
       bc.style('display','block').html(
         `<span style="color:#888">India</span> <span style="color:#ccc"> › </span>`+
-        `<span style="color:#185FA5;font-weight:500">${nm}</span>`+
-        `<span style="color:#999;font-size:11px"> · ${pts.length} pincodes</span>`
+        `<span style="color:#185FA5;font-weight:500">${stateName}</span>`+
+        `<span style="color:#999;font-size:11px"> · ${dEntries.length} districts</span>`
       );
       back.style('display','block');
+
+      // Update legend to district scale
+      updateLegend(svg,dCs,dMx,W,H,'district');
+
+      // Pass district data up for breakdown table
+      if(onDistrictData) onDistrictData(stateName, dEntries.map(([name,d])=>({name,...d})).sort((a,b)=>b.orders-a.orders));
     }
 
     function resetAll(){
       activeStateRef.current=null; modeRef.current='state';
       bc.style('display','none'); back.style('display','none'); tt.style('opacity','0');
+      districtG.style('display','none').selectAll('*').remove();
       bubbleG.style('display','none').selectAll('*').remove();
       stG.selectAll('path').transition().duration(400).attr('opacity',1).attr('stroke','#fff').attr('stroke-width',0.7);
       lblG.transition().duration(400).attr('opacity',1);
       svg.transition().duration(500).ease(d3.easeCubicInOut).call(zoom.transform,d3.zoomIdentity);
-      updateStateLegend(svg,sCs,sMx,W,H);
+      updateLegend(svg,sCs,sMx,W,H,'state');
+      if(onDistrictData) onDistrictData(null,null);
+    }
+
+    function updateLegend(svg,cs,mx,W,H,mode){
+      svg.selectAll('.leg').remove();
+      const lg=svg.append('g').attr('class','leg');
+      const lW=110,lH=7,lX=W-lW-12,lY=H-22;
+      if(!svg.select('defs').node())svg.append('defs');
+      svg.select('defs').selectAll('#hGrd').remove();
+      const grad=svg.select('defs').append('linearGradient').attr('id','hGrd').attr('x1','0%').attr('x2','100%');
+      [0,0.25,0.5,0.75,1].forEach(t=>grad.append('stop').attr('offset',t*100+'%').attr('stop-color',cs(mx*t)));
+      lg.append('rect').attr('x',lX).attr('y',lY).attr('width',lW).attr('height',lH).attr('rx',3).attr('fill','url(#hGrd)');
+      lg.append('text').attr('x',lX).attr('y',lY+15).attr('font-size',9).attr('fill','#999').text('0');
+      const mxL=metric==='aov'?'₹'+Math.round(mx/1000)+'k':metric==='renewal'||metric==='disc'?Math.round(mx)+'%':mx>=1000?(mx/1000).toFixed(1)+'k':mx;
+      lg.append('text').attr('x',lX+lW).attr('y',lY+15).attr('font-size',9).attr('fill','#999').attr('text-anchor','end').text(mxL);
+      if(mode==='district'){
+        lg.append('circle').attr('cx',lX-10).attr('cy',lY+3).attr('r',4).attr('fill','rgba(24,95,165,0.75)');
+        lg.append('text').attr('x',lX-22).attr('y',lY+7).attr('font-size',9).attr('fill','#999').attr('text-anchor','end').text('= order volume');
+      }
     }
 
     svg.on('click',()=>{if(modeRef.current!=='state')resetAll();});
@@ -230,10 +335,9 @@ function IndiaHeatmap({stateData,pincodePoints,metric}){
         const{transform:tr}=event;
         zoomRef.current={k:tr.k};
         g.attr('transform',tr);
-        stG.selectAll('path').attr('stroke-width',(modeRef.current==='state'?0.7:0.3)/tr.k);
-        bubbleG.selectAll('circle')
-          .attr('r',p=>{ try{return d3.scaleSqrt([0,Math.max(...((pincodePoints||[]).filter(x=>x.state===activeStateRef.current).map(x=>x.orders)),1)],[3,28])(p.orders)/tr.k;}catch{return 3/tr.k;}})
-          .attr('stroke-width',0.4/tr.k);
+        stG.selectAll('path').attr('stroke-width',(modeRef.current==='state'?0.7:0.5)/tr.k);
+        districtG.selectAll('path').attr('stroke-width',0.6/tr.k);
+        bubbleG.selectAll('circle').attr('stroke-width',0.8/tr.k);
         lblG.selectAll('text').attr('font-size',9/Math.sqrt(tr.k));
         if(tr.k<=1.05&&modeRef.current!=='state')resetAll();
         tt.style('opacity','0');
@@ -242,7 +346,7 @@ function IndiaHeatmap({stateData,pincodePoints,metric}){
     svg.call(zoom);
     zoomRef.current={k:1};
 
-    // +/- controls
+    // +/- buttons
     const ctrl=svg.append('g').attr('transform','translate(12,12)');
     [['+',0,1.6],['-',28,0.625]].forEach(([l,dy,f])=>{
       const b=ctrl.append('g').attr('transform',`translate(0,${dy})`).style('cursor','pointer');
@@ -251,60 +355,79 @@ function IndiaHeatmap({stateData,pincodePoints,metric}){
       b.on('click',ev=>{ev.stopPropagation();svg.transition().duration(250).call(zoom.scaleBy,f);});
     });
 
-    updateStateLegend(svg,sCs,sMx,W,H);
+    updateLegend(svg,sCs,sMx,W,H,'state');
     drawnRef.current=true;
-  },[stateData,pincodePoints,metric]);
-
-  function updateStateLegend(svg,cs,mx,W,H){
-    svg.selectAll('.leg').remove();
-    const lg=svg.append('g').attr('class','leg');
-    const lW=110,lH=7,lX=W-lW-12,lY=H-22;
-    svg.select('defs').empty()&&svg.append('defs');
-    svg.select('defs').selectAll('#hGrd').remove();
-    const grad=svg.select('defs').append('linearGradient').attr('id','hGrd').attr('x1','0%').attr('x2','100%');
-    [0,0.25,0.5,0.75,1].forEach(t=>grad.append('stop').attr('offset',t*100+'%').attr('stop-color',cs(mx*t)));
-    lg.append('rect').attr('x',lX).attr('y',lY).attr('width',lW).attr('height',lH).attr('rx',3).attr('fill','url(#hGrd)');
-    lg.append('text').attr('x',lX).attr('y',lY+15).attr('font-size',9).attr('fill','#999').text('0');
-    const mxL=metric==='aov'?'₹'+Math.round(mx/1000)+'k':metric==='renewal'||metric==='disc'?Math.round(mx)+'%':mx>=1000?(mx/1000).toFixed(1)+'k':mx;
-    lg.append('text').attr('x',lX+lW).attr('y',lY+15).attr('font-size',9).attr('fill','#999').attr('text-anchor','end').text(mxL);
-  }
-
-  function updateBubbleLegend(svg,rScale,scale,cs,mx,W,H){
-    svg.selectAll('.leg').remove();
-    const lg=svg.append('g').attr('class','leg');
-    // Color ramp
-    const lW=90,lH=6,lX=W-lW-12,lY=H-22;
-    svg.select('defs').empty()&&svg.append('defs');
-    svg.select('defs').selectAll('#bGrd').remove();
-    const grad=svg.select('defs').append('linearGradient').attr('id','bGrd').attr('x1','0%').attr('x2','100%');
-    const bCs=window.d3.scaleSequential([0,mx],window.d3.interpolateOrRd);
-    [0,0.25,0.5,0.75,1].forEach(t=>grad.append('stop').attr('offset',t*100+'%').attr('stop-color',bCs(mx*t)));
-    lg.append('rect').attr('x',lX).attr('y',lY).attr('width',lW).attr('height',lH).attr('rx',3).attr('fill','url(#bGrd)');
-    lg.append('text').attr('x',lX).attr('y',lY+15).attr('font-size',9).attr('fill','#999').text('low');
-    const mxL=metric==='aov'?'₹'+Math.round(mx/1000)+'k':metric==='renewal'||metric==='disc'?Math.round(mx)+'%':'high';
-    lg.append('text').attr('x',lX+lW).attr('y',lY+15).attr('font-size',9).attr('fill','#999').attr('text-anchor','end').text(mxL);
-    // Size legend
-    lg.append('text').attr('x',W-lW-14).attr('y',lY+15).attr('font-size',9).attr('fill','#999').attr('text-anchor','end').text('● = order volume');
-  }
+  },[stateData,districtData,metric,onDistrictData]);
 
   useEffect(()=>{
     function tryDraw(){
       if(!window.d3||!window.d3.geoMercator){setTimeout(tryDraw,150);return;}
-      if(geoStateRef.current){draw();return;}
-      fetch('/india.json').then(r=>r.json()).then(g=>{geoStateRef.current=g;draw();})
-        .catch(e=>{const w=wrapRef.current;if(w)w.innerHTML=`<div style="padding:48px;text-align:center;color:#E24B4A;font-size:13px">Map error: ${e.message}</div>`;});
+      const fetches=[];
+      if(!geoStateRef.current) fetches.push(fetch('/india.json').then(r=>r.json()).then(g=>{geoStateRef.current=g;}));
+      if(!geoDistRef.current) fetches.push(fetch('/india_districts.json').then(r=>r.json()).then(g=>{geoDistRef.current=g;}));
+      if(!aliasRef.current) fetches.push(fetch('/district_aliases.json').then(r=>r.json()).then(a=>{aliasRef.current=a;}));
+      Promise.all(fetches).then(()=>draw()).catch(e=>{
+        const w=wrapRef.current;if(w)w.innerHTML=`<div style="padding:48px;text-align:center;color:#E24B4A;font-size:13px">Map error: ${e.message}</div>`;
+      });
     }
     tryDraw();
   },[draw]);
 
   useEffect(()=>{
     let t;
-    const obs=new ResizeObserver(()=>{clearTimeout(t);t=setTimeout(()=>{if(drawnRef.current&&geoStateRef.current&&window.d3)draw();},150);});
+    const obs=new ResizeObserver(()=>{clearTimeout(t);t=setTimeout(()=>{if(drawnRef.current&&window.d3)draw();},200);});
     if(wrapRef.current)obs.observe(wrapRef.current);
     return()=>{obs.disconnect();clearTimeout(t);};
   },[draw]);
 
   return <div ref={wrapRef} style={{position:'relative',width:'100%',borderRadius:8,overflow:'hidden',minHeight:300}}/>;
+}
+
+/* ── District breakdown table ── */
+function DistrictBreakdown({stateName,districts,metric}){
+  if(!stateName||!districts||!districts.length) return null;
+  const fmtV=(v,m)=>{
+    if(v===undefined||v===null||isNaN(v))return'—';
+    if(m==='aov')return'₹'+Math.round(v).toLocaleString('en-IN');
+    if(m==='renewal'||m==='disc')return Math.round(v)+'%';
+    return Number(v).toLocaleString('en-IN');
+  };
+  const mLbl=m=>({aov:'AOV',renewal:'Renewal',disc:'Disc %',orders:'Orders'}[m]||m);
+  const maxOrders=Math.max(...districts.map(d=>d.orders),1);
+  return(
+    <div style={{background:'#fff',border:'0.5px solid #e5e5e3',borderRadius:12,padding:18,marginTop:16}}>
+      <div style={{fontSize:14,fontWeight:500,marginBottom:3}}>{stateName} — district breakdown</div>
+      <div style={{fontSize:12,color:'#888',marginBottom:14}}>{districts.length} districts with orders · sorted by order volume</div>
+      <div style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+          <thead>
+            <tr style={{borderBottom:'0.5px solid #e5e5e3'}}>
+              {['District','Orders','AOV','Renewal','Disc %','Pincodes'].map(h=>(
+                <th key={h} style={{padding:'6px 12px',textAlign:h==='District'?'left':'right',color:'#888',fontWeight:400,fontSize:11,whiteSpace:'nowrap'}}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {districts.map((d,i)=>(
+              <tr key={d.name} style={{borderBottom:'0.5px solid #f0f0ee',background:i%2===0?'#fff':'#fafaf8'}}>
+                <td style={{padding:'8px 12px',fontWeight:500}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <div style={{width:Math.max(3,Math.round(d.orders/maxOrders*60)),height:6,background:'#185FA5',borderRadius:3,opacity:0.7,flexShrink:0}}/>
+                    {d.name}
+                  </div>
+                </td>
+                <td style={{padding:'8px 12px',textAlign:'right',fontWeight:500}}>{d.orders.toLocaleString('en-IN')}</td>
+                <td style={{padding:'8px 12px',textAlign:'right'}}>₹{d.aov.toLocaleString('en-IN')}</td>
+                <td style={{padding:'8px 12px',textAlign:'right',color:d.renewal>=50?'#1D9E75':d.renewal>=30?'#BA7517':'#E24B4A',fontWeight:500}}>{d.renewal}%</td>
+                <td style={{padding:'8px 12px',textAlign:'right'}}>{d.disc}%</td>
+                <td style={{padding:'8px 12px',textAlign:'right',color:'#888'}}>{d.pincodeCount||1}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 
@@ -317,6 +440,7 @@ function ST({children}){return<div style={{fontSize:11,fontWeight:500,color:'#aa
 /* ── Main page ── */
 export default function Dashboard(){
   const[url,setUrl]=useState(''),[oSheet,setOSheet]=useState('Sheet1'),[pSheet,setPSheet]=useState('Sheet2');
+  const[drillState,setDrillState]=useState(null),[drillDistricts,setDrillDistricts]=useState(null);
   const[status,setStatus]=useState({msg:'',type:''}),[appData,setAppData]=useState(null);
   const[filter,setFilter]=useState('all'),[tab,setTab]=useState('charts'),[mapMet,setMapMet]=useState('orders');
   const cRef=useRef({});
@@ -373,27 +497,46 @@ export default function Dashboard(){
     });
     Object.keys(state).forEach(k=>{const d=state[k];d.aov=d.orders?Math.round(d.rev/d.orders):0;d.renewal=d.orders?Math.round(d.renC/d.orders*100):0;d.disc=d.orders?Math.round(d.discC/d.orders*100):0;});
     // District data: state → { districtName → {orders,rev,renC,discC} }
-    // Pincode-level bubble data using lat/lng from pincode sheet
-    const pcRaw={};
+    // District-level aggregation: group pincodes by district name per state
+    // districtData[stateName][districtName] = {orders, aov, renewal, disc, lat, lng (centroid), pincodeCount}
+    const distRaw={}; // state → district → {orders,rev,renC,discC,lats,lngs,pincodes}
     rows.forEach(r=>{
       const pc=col(r,'Shipping Pincode','shipping_pincode').toString().trim();
       const pm=appData?.pm[pc];
-      if(!pm)return;
-      if(!pcRaw[pc])pcRaw[pc]={orders:0,rev:0,renC:0,discC:0,district:pm.city,state:pm.state,lat:pm.lat,lng:pm.lng,pincode:pc};
-      const d=pcRaw[pc];
+      if(!pm||!pm.state)return;
+      const st=pm.state, di=pm.city||'Unknown';
+      if(!distRaw[st])distRaw[st]={};
+      if(!distRaw[st][di])distRaw[st][di]={orders:0,rev:0,renC:0,discC:0,lats:[],lngs:[],pincodes:new Set()};
+      const d=distRaw[st][di];
       d.orders++;
       d.rev+=parseFloat(col(r,'Total Price','total_price').replace(/[^0-9.]/g,''))||0;
       const ct=getCT(r);if(ct==='renewal')d.renC++;
       if((col(r,'Discount Code','discount_code')||'').trim())d.discC++;
+      if(pm.lat&&pm.lng){d.lats.push(pm.lat);d.lngs.push(pm.lng);}
+      d.pincodes.add(pc);
     });
-    const pincodePoints=Object.values(pcRaw)
-      .filter(p=>p.lat&&p.lng&&p.state)
-      .map(p=>({...p,aov:p.orders?Math.round(p.rev/p.orders):0,renewal:p.orders?Math.round(p.renC/p.orders*100):0,disc:p.orders?Math.round(p.discC/p.orders*100):0}));
+    const districtData={};
+    Object.keys(distRaw).forEach(st=>{
+      districtData[st]={};
+      Object.keys(distRaw[st]).forEach(di=>{
+        const d=distRaw[st][di];
+        const lat=d.lats.length?d.lats.reduce((a,b)=>a+b,0)/d.lats.length:null;
+        const lng=d.lngs.length?d.lngs.reduce((a,b)=>a+b,0)/d.lngs.length:null;
+        districtData[st][di]={
+          orders:d.orders,
+          aov:d.orders?Math.round(d.rev/d.orders):0,
+          renewal:d.orders?Math.round(d.renC/d.orders*100):0,
+          disc:d.orders?Math.round(d.discC/d.orders*100):0,
+          lat,lng,
+          pincodeCount:d.pincodes.size,
+        };
+      });
+    });
     const t15=Object.entries(city).sort((a,b)=>b[1].orders-a[1].orders).slice(0,15);
     const tot=rows.length,totR=rows.reduce((s,r)=>s+(parseFloat(col(r,'Total Price','total_price').replace(/[^0-9.]/g,''))||0),0);
     const totRen=rows.filter(r=>getCT(r)==='renewal').length,totNew=rows.filter(r=>getCT(r)==='new').length;
     const totD=rows.filter(r=>(col(r,'Discount Code','discount_code')||'').trim()).length;
-    return{t15,state,pincodePoints,tot,totR,totRen,totNew,totD,pDur,pSub,cities:Object.keys(city).length};
+    return{t15,state,districtData,tot,totR,totRen,totNew,totD,pDur,pSub,cities:Object.keys(city).length};
   }
 
   const m=appData?calc():null;
@@ -513,8 +656,9 @@ export default function Dashboard(){
                   <span style={{fontSize:12,color:'#888'}}>Show:</span>
                   {Object.entries(mmL).map(([k,l])=>(<button key={k} onClick={()=>setMapMet(k)} style={{fontSize:12,padding:'5px 14px',borderRadius:20,border:'0.5px solid',borderColor:mapMet===k?'#185FA5':'#ccc',background:mapMet===k?'#185FA5':'#fff',color:mapMet===k?'#fff':'#555',cursor:'pointer'}}>{l}</button>))}
                 </div>
-                <CCard title={`India heatmap — ${mmL[mapMet]} by state`} sub="Click a state → pincode bubbles · Scroll to zoom · Drag to pan">
-                  <IndiaHeatmap stateData={m.state} pincodePoints={m.pincodePoints} metric={mapMet}/>
+                <CCard title={`India heatmap — ${mmL[mapMet]} by state`} sub="Click a state → district view with borders · Drag to pan · Scroll to zoom">
+                  <IndiaHeatmap stateData={m.state} districtData={m.districtData} metric={mapMet} onDistrictData={(st,dists)=>{setDrillState(st);setDrillDistricts(dists);}}/>
+                <DistrictBreakdown stateName={drillState} districts={drillDistricts} metric={mapMet}/>
                 </CCard>
                 <div style={{marginTop:16,display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:10}}>
                   {topStates.map(([st,d])=>(
